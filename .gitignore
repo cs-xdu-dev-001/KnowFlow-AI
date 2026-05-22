@@ -30,3 +30,6 @@ data/*.db-*
 data/uploads/
 logs/
 *.log
+
+# Internal planning notes
+docs/superpowers/
