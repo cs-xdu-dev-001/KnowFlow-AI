@@ -1,0 +1,22 @@
+{
+  "name": "knowflow-ai-frontend",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync:assets": "node scripts/sync-assets.mjs",
+    "sync:styles": "npm run sync:assets",
+    "predev": "npm run sync:assets",
+    "dev": "vite --host 127.0.0.1",
+    "prebuild": "npm run sync:assets",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.11",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {}
+}

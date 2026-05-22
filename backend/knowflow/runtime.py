@@ -1,0 +1,917 @@
+from __future__ import annotations
+
+import base64
+import csv
+import hashlib
+import hmac
+import html
+import json
+import math
+import os
+import re
+import secrets
+import time
+import uuid
+from collections import Counter
+from datetime import datetime
+from io import BytesIO, StringIO
+from pathlib import Path
+from typing import Any, Iterable
+from urllib.parse import urlencode
+
+import requests
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
+
+try:
+    from cryptography.fernet import Fernet
+except Exception:  # pragma: no cover - dependency exists in requirements
+    Fernet = None  # type: ignore
+
+
+from .config import *
+from .database import Database
+from .responses import *
+from .schemas import *
+
+
+
+
+
+
+
+
+
+
+
+
+
+def mappings(rows: Iterable[Any]) -> list[dict[str, Any]]:
+    return [dict(row._mapping) for row in rows]
+
+
+
+
+
+
+
+db = Database(DB_URL)
+
+
+class Cipher:
+    def __init__(self, secret: str):
+        digest = hashlib.sha256(secret.encode("utf-8")).digest()
+        self.key = base64.urlsafe_b64encode(digest)
+        self.fernet = Fernet(self.key) if Fernet else None
+
+    def encrypt(self, value: str) -> str:
+        if not value:
+            return ""
+        if self.fernet:
+            return self.fernet.encrypt(value.encode("utf-8")).decode("utf-8")
+        return base64.b64encode(value.encode("utf-8")).decode("ascii")
+
+    def decrypt(self, value: str | None) -> str:
+        if not value:
+            return ""
+        try:
+            if self.fernet:
+                return self.fernet.decrypt(value.encode("utf-8")).decode("utf-8")
+            return base64.b64decode(value.encode("ascii")).decode("utf-8")
+        except Exception:
+            return ""
+
+    def mask(self, value: str | None) -> str:
+        raw = self.decrypt(value)
+        if not raw:
+            return ""
+        if len(raw) <= 8:
+            return raw[:2] + "***"
+        return raw[:4] + "****" + raw[-4:]
+
+
+cipher = Cipher(SECRET_KEY)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def normalize_model_config(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "provider": row["provider"],
+        "modelType": row["model_type"],
+        "baseUrl": row["base_url"],
+        "apiKeyMasked": cipher.mask(row.get("api_key_cipher")),
+        "modelName": row["model_name"],
+        "temperature": row["temperature"],
+        "topP": row["top_p"],
+        "maxTokens": row["max_tokens"],
+        "isDefault": bool(row["is_default"]),
+        "status": row["status"],
+        "createdAt": str(row["created_at"]),
+        "updatedAt": str(row["updated_at"]),
+    }
+
+
+def scalar(sql: str, params: dict[str, Any] | None = None) -> Any:
+    with db.engine.begin() as conn:
+        return conn.execute(text(sql), params or {}).scalar()
+
+
+def fetch_one(sql: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    with db.engine.begin() as conn:
+        row = conn.execute(text(sql), params or {}).mappings().first()
+    return dict(row) if row else None
+
+
+def fetch_all(sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    with db.engine.begin() as conn:
+        return [dict(row) for row in conn.execute(text(sql), params or {}).mappings().all()]
+
+
+def execute(sql: str, params: dict[str, Any] | None = None) -> int | None:
+    with db.engine.begin() as conn:
+        result = conn.execute(text(sql), params or {})
+        try:
+            return int(result.lastrowid)
+        except Exception:
+            return None
+
+
+def post_model_json(url: str, headers: dict[str, str], payload: dict[str, Any], timeout: int | None = None) -> requests.Response:
+    session = requests.Session()
+    session.trust_env = MODEL_TRUST_ENV
+    try:
+        return session.post(url, headers=headers, json=payload, timeout=timeout or MODEL_REQUEST_TIMEOUT)
+    finally:
+        session.close()
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    iterations = 210_000
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), iterations).hex()
+    return f"pbkdf2_sha256${iterations}${salt}${digest}"
+
+
+def verify_password(password: str, password_hash: str | None) -> bool:
+    if not password_hash:
+        return False
+    try:
+        algorithm, iterations_text, salt, digest = password_hash.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        current = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), int(iterations_text)).hex()
+        return hmac.compare_digest(current, digest)
+    except Exception:
+        return False
+
+
+def normalize_email(email: str | None) -> str:
+    return (email or "").strip().lower()
+
+
+def normalize_user(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "email": row.get("email") or "",
+        "username": row.get("username") or "",
+        "displayName": row.get("display_name") or row.get("username") or row.get("email") or "KnowFlow User",
+        "avatarUrl": row.get("avatar_url") or "",
+        "authProvider": row.get("auth_provider") or "local",
+    }
+
+
+def session_expires_at() -> str:
+    return datetime.fromtimestamp(time.time() + AUTH_SESSION_TTL_SECONDS).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def set_session_cookie(response: Response, session_id: str) -> None:
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        session_id,
+        max_age=AUTH_SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="lax",
+        path="/",
+    )
+
+
+def create_auth_session(response: Response, user_id: int, request: Request | None = None) -> str:
+    session_id = secrets.token_urlsafe(36)
+    execute(
+        """
+        INSERT INTO auth_session(id, user_id, user_agent, expires_at, created_at, last_seen_at)
+        VALUES (:id, :user_id, :user_agent, :expires_at, :created_at, :last_seen_at)
+        """,
+        {
+            "id": session_id,
+            "user_id": user_id,
+            "user_agent": request.headers.get("user-agent", "")[:500] if request else "",
+            "expires_at": session_expires_at(),
+            "created_at": now_str(),
+            "last_seen_at": now_str(),
+        },
+    )
+    set_session_cookie(response, session_id)
+    return session_id
+
+
+def get_current_user(request: Request) -> dict[str, Any] | None:
+    auth_header = request.headers.get("authorization", "")
+    bearer_token = auth_header.removeprefix("Bearer ").strip() if auth_header.startswith("Bearer ") else ""
+    session_id = request.cookies.get(SESSION_COOKIE_NAME) or bearer_token
+    if not session_id:
+        return None
+    row = fetch_one(
+        """
+        SELECT u.*
+        FROM auth_session s
+        JOIN app_user u ON u.id = s.user_id
+        WHERE s.id=:session_id AND s.expires_at > :now
+        """,
+        {"session_id": session_id, "now": now_str()},
+    )
+    if not row:
+        execute("DELETE FROM auth_session WHERE id=:session_id", {"session_id": session_id})
+        return None
+    execute("UPDATE auth_session SET last_seen_at=:last_seen_at WHERE id=:session_id", {"last_seen_at": now_str(), "session_id": session_id})
+    return row
+
+
+def current_user_id(request: Request) -> int:
+    user = getattr(request.state, "current_user", None)
+    if not user:
+        raise HTTPException(status_code=401, detail="请先登录")
+    return int(user["id"])
+
+
+def adopt_legacy_data_for_user(user_id: int) -> None:
+    for table in ["model_config", "knowledge_base", "document", "chat_session", "sync_task"]:
+        execute(f"UPDATE {table} SET user_id=:user_id WHERE user_id IS NULL", {"user_id": user_id})
+
+
+def oauth_provider_status() -> dict[str, Any]:
+    return {
+        "github": {
+            "name": "GitHub",
+            "enabled": bool(GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET),
+            "callbackUrl": f"{BASE_URL}/api/auth/oauth/github/callback",
+        }
+    }
+
+
+def make_oauth_state() -> str:
+    payload = {"nonce": secrets.token_urlsafe(12), "ts": int(time.time())}
+    encoded = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")).decode("ascii").rstrip("=")
+    signature = hmac.new(SECRET_KEY.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).hexdigest()
+    return f"{encoded}.{signature}"
+
+
+def verify_oauth_state(state: str) -> bool:
+    try:
+        encoded, signature = state.split(".", 1)
+        expected = hmac.new(SECRET_KEY.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return False
+        padding = "=" * (-len(encoded) % 4)
+        payload = json.loads(base64.urlsafe_b64decode((encoded + padding).encode("ascii")).decode("utf-8"))
+        return int(time.time()) - int(payload.get("ts", 0)) <= 600
+    except Exception:
+        return False
+
+
+def get_or_create_oauth_user(provider: str, provider_user_id: str, email: str, username: str, display_name: str, avatar_url: str) -> dict[str, Any]:
+    linked = fetch_one("SELECT user_id FROM oauth_account WHERE provider=:provider AND provider_user_id=:provider_user_id", {"provider": provider, "provider_user_id": provider_user_id})
+    if linked:
+        user = fetch_one("SELECT * FROM app_user WHERE id=:id", {"id": linked["user_id"]})
+        if user:
+            return user
+    user = fetch_one("SELECT * FROM app_user WHERE email=:email", {"email": email}) if email else None
+    if not user:
+        base_username = re.sub(r"[^a-zA-Z0-9_-]", "-", username or f"{provider}-{provider_user_id}")[:60].strip("-") or f"{provider}-{provider_user_id}"
+        final_username = base_username
+        suffix = 1
+        while fetch_one("SELECT id FROM app_user WHERE username=:username", {"username": final_username}):
+            suffix += 1
+            final_username = f"{base_username}-{suffix}"
+        user_id = execute(
+            """
+            INSERT INTO app_user(email, username, display_name, avatar_url, password_hash, auth_provider, created_at, updated_at)
+            VALUES (:email, :username, :display_name, :avatar_url, NULL, :auth_provider, :created_at, :updated_at)
+            """,
+            {
+                "email": email,
+                "username": final_username,
+                "display_name": display_name or final_username,
+                "avatar_url": avatar_url,
+                "auth_provider": provider,
+                "created_at": now_str(),
+                "updated_at": now_str(),
+            },
+        )
+        user = fetch_one("SELECT * FROM app_user WHERE id=:id", {"id": user_id})
+    execute(
+        """
+        INSERT INTO oauth_account(user_id, provider, provider_user_id, email, username, avatar_url, created_at, updated_at)
+        VALUES (:user_id, :provider, :provider_user_id, :email, :username, :avatar_url, :created_at, :updated_at)
+        """,
+        {
+            "user_id": user["id"],
+            "provider": provider,
+            "provider_user_id": provider_user_id,
+            "email": email,
+            "username": username,
+            "avatar_url": avatar_url,
+            "created_at": now_str(),
+            "updated_at": now_str(),
+        },
+    )
+    return user
+
+
+def tokenize(text_value: str) -> list[str]:
+    return re.findall(r"[a-zA-Z0-9_]+|[\u4e00-\u9fff]", text_value.lower())
+
+
+def local_embedding(text_value: str, dim: int = 384) -> list[float]:
+    vector = [0.0] * dim
+    for token in tokenize(text_value):
+        digest = hashlib.md5(token.encode("utf-8")).digest()
+        idx = int.from_bytes(digest[:4], "big") % dim
+        vector[idx] += 1.0
+    norm = math.sqrt(sum(item * item for item in vector))
+    if norm == 0:
+        return vector
+    return [item / norm for item in vector]
+
+
+def text_counter(text_value: str) -> Counter[str]:
+    return Counter(tokenize(text_value))
+
+
+def cosine_counter(left: Counter[str], right: Counter[str]) -> float:
+    if not left or not right:
+        return 0.0
+    common = set(left) & set(right)
+    dot = sum(left[t] * right[t] for t in common)
+    left_norm = math.sqrt(sum(v * v for v in left.values()))
+    right_norm = math.sqrt(sum(v * v for v in right.values()))
+    return dot / (left_norm * right_norm) if left_norm and right_norm else 0.0
+
+
+def cosine_vector(left: list[float], right: list[float]) -> float:
+    if not left or not right or len(left) != len(right):
+        return 0.0
+    dot = sum(a * b for a, b in zip(left, right))
+    left_norm = math.sqrt(sum(a * a for a in left))
+    right_norm = math.sqrt(sum(b * b for b in right))
+    return dot / (left_norm * right_norm) if left_norm and right_norm else 0.0
+
+
+def query_term_score(query: str, text_value: str, filename: str = "") -> float:
+    query_tokens = tokenize(query)
+    if not query_tokens:
+        return 0.0
+    text_tokens = set(tokenize(text_value))
+    filename_tokens = set(tokenize(filename))
+    matched = sum(1 for token in query_tokens if token in text_tokens)
+    filename_hits = sum(1 for token in query_tokens if token in filename_tokens)
+    phrase_bonus = 0.12 if query.strip().lower() in (text_value or "").lower() else 0.0
+    return min(1.0, matched / len(query_tokens) + filename_hits * 0.05 + phrase_bonus)
+
+
+def hybrid_score(query: str, chunk_text: str, filename: str = "", base_score: float = 0.0) -> float:
+    keyword = cosine_counter(text_counter(query), text_counter(chunk_text))
+    sparse = query_term_score(query, chunk_text, filename)
+    dense = cosine_vector(local_embedding(query), local_embedding(chunk_text))
+    score = 0.38 * keyword + 0.22 * sparse + 0.25 * dense + 0.15 * base_score
+    return round(max(0.0, min(1.0, score)), 4)
+
+
+from .services.model_gateway import ModelGateway
+
+
+gateway = ModelGateway(
+    fetch_one=fetch_one,
+    cipher=cipher,
+    post_model_json=post_model_json,
+    local_embedding=local_embedding,
+)
+
+
+from .services.vector_store import VectorStore
+
+
+vector_store = VectorStore(
+    backend=VECTOR_BACKEND,
+    chroma_dir=CHROMA_DIR,
+    gateway=gateway,
+    fetch_one=fetch_one,
+    fetch_all=fetch_all,
+    hybrid_score=hybrid_score,
+)
+
+
+from .services.document_parser import (
+    decode_bytes,
+    extract_text_from_upload,
+    flatten_json,
+    html_to_text,
+    parse_table_text,
+    read_upload_file_with_limit,
+    rtf_to_text,
+    sanitize_upload_filename,
+    split_text,
+    validate_upload_file,
+)
+
+
+def get_kb(kb_id: int, user_id: int | None = None) -> dict[str, Any]:
+    if user_id is None:
+        row = fetch_one("SELECT * FROM knowledge_base WHERE id=:id", {"id": kb_id})
+    else:
+        row = fetch_one("SELECT * FROM knowledge_base WHERE id=:id AND user_id=:user_id", {"id": kb_id, "user_id": user_id})
+    if not row:
+        raise HTTPException(status_code=404, detail="知识库不存在")
+    return row
+
+
+def get_document_for_user(document_id: int, user_id: int) -> dict[str, Any]:
+    row = fetch_one("SELECT * FROM document WHERE id=:id AND user_id=:user_id", {"id": document_id, "user_id": user_id})
+    if not row:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    return row
+
+
+def get_session_for_user(session_id: str, user_id: int) -> dict[str, Any]:
+    row = fetch_one("SELECT * FROM chat_session WHERE id=:id AND user_id=:user_id", {"id": session_id, "user_id": user_id})
+    if not row:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return row
+
+
+def get_model_config(config_id: int | None, model_type: str, user_id: int | None = None) -> dict[str, Any] | None:
+    return gateway.get_config(config_id, model_type, user_id)
+
+
+def get_embedding_config_for_kb(kb_id: int, user_id: int | None = None) -> dict[str, Any] | None:
+    kb = get_kb(kb_id, user_id)
+    return get_model_config(int(kb["embedding_model_config_id"]), "embedding", user_id)
+
+
+def ensure_session(session_id: str | None, knowledge_base_id: int | None, chat_model_config_id: int | None, user_id: int) -> str:
+    final_id = session_id or f"session-{uuid.uuid4().hex[:12]}"
+    row = fetch_one("SELECT id FROM chat_session WHERE id=:id AND user_id=:user_id", {"id": final_id, "user_id": user_id})
+    if session_id and not row and fetch_one("SELECT id FROM chat_session WHERE id=:id", {"id": final_id}):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    if not row:
+        execute(
+            """
+            INSERT INTO chat_session(id, user_id, title, knowledge_base_id, chat_model_config_id, created_at, updated_at)
+            VALUES (:id, :user_id, :title, :knowledge_base_id, :chat_model_config_id, :created_at, :updated_at)
+            """,
+            {
+                "id": final_id,
+                "user_id": user_id,
+                "title": "新会话",
+                "knowledge_base_id": knowledge_base_id,
+                "chat_model_config_id": chat_model_config_id,
+                "created_at": now_str(),
+                "updated_at": now_str(),
+            },
+        )
+    return final_id
+
+
+def save_message(session_id: str, role: str, content: str) -> int:
+    message_id = execute(
+        """
+        INSERT INTO chat_message(session_id, role, content, created_at)
+        VALUES (:session_id, :role, :content, :created_at)
+        """,
+        {"session_id": session_id, "role": role, "content": content, "created_at": now_str()},
+    )
+    execute("UPDATE chat_session SET updated_at=:updated_at WHERE id=:id", {"updated_at": now_str(), "id": session_id})
+    return int(message_id or 0)
+
+
+def get_recent_history(session_id: str, limit: int = 8) -> list[dict[str, Any]]:
+    rows = fetch_all(
+        """
+        SELECT id, role, content, created_at
+        FROM chat_message
+        WHERE session_id=:session_id
+        ORDER BY id DESC
+        LIMIT :limit
+        """,
+        {"session_id": session_id, "limit": limit},
+    )
+    return list(reversed(rows))
+
+
+def retrieve_chunks(knowledge_base_id: int, query: str, top_k: int = DEFAULT_TOP_K, user_id: int | None = None) -> list[dict[str, Any]]:
+    embedding_config = get_embedding_config_for_kb(knowledge_base_id, user_id)
+    return vector_store.query(knowledge_base_id, query, top_k, embedding_config)
+
+
+def matched_terms(query: str, chunk_text: str, filename: str = "") -> list[str]:
+    query_tokens = list(dict.fromkeys(tokenize(query)))
+    search_tokens = set(tokenize(f"{filename} {chunk_text}"))
+    return [token for token in query_tokens if token in search_tokens]
+
+
+def enrich_retrieval_chunks(query: str, chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    for rank, chunk in enumerate(chunks, start=1):
+        item = dict(chunk)
+        item["rank"] = rank
+        item["matchedTerms"] = matched_terms(query, str(item.get("chunk_text") or ""), str(item.get("filename") or ""))
+        enriched.append(item)
+    return enriched
+
+
+def assess_retrieval_quality(query: str, chunks: list[dict[str, Any]], threshold: float = RETRIEVAL_SCORE_THRESHOLD) -> dict[str, Any]:
+    enriched = enrich_retrieval_chunks(query, chunks)
+    scores = [float(item.get("score") or 0) for item in enriched]
+    max_score = max(scores, default=0.0)
+    hit_count = len(enriched)
+    matched_count = sum(1 for item in enriched if item.get("matchedTerms"))
+    if not enriched:
+        quality_level = "no_match"
+        reason = "没有召回任何知识库片段。"
+    elif matched_count == 0 and max_score < threshold:
+        quality_level = "no_match"
+        reason = "召回片段与问题关键词没有明显重合。"
+    elif max_score < threshold or matched_count == 0:
+        quality_level = "weak"
+        reason = "召回片段相关性偏弱，回答需要谨慎。"
+    elif max_score >= max(0.45, threshold + 0.15) and matched_count >= 1:
+        quality_level = "strong"
+        reason = "召回片段与问题匹配度较高。"
+    else:
+        quality_level = "usable"
+        reason = "召回片段可作为回答依据。"
+
+    suggestions: list[str] = []
+    if quality_level in {"weak", "no_match"}:
+        suggestions.extend(
+            [
+                "换一个更具体的问题再检索。",
+                "上传包含该主题的文档，或检查当前选择的知识库。",
+            ]
+        )
+    return {
+        "enabled": True,
+        "query": query,
+        "threshold": threshold,
+        "hitCount": hit_count,
+        "matchedCount": matched_count,
+        "maxScore": round(max_score, 4),
+        "avgScore": round(sum(scores) / len(scores), 4) if scores else 0.0,
+        "qualityLevel": quality_level,
+        "reason": reason,
+        "suggestions": suggestions,
+    }
+
+
+def record_retrieval_run(
+    *,
+    user_id: int,
+    knowledge_base_id: int,
+    query: str,
+    top_k: int,
+    chunks: list[dict[str, Any]],
+    quality: dict[str, Any],
+    duration_ms: int,
+    status: str = "success",
+) -> dict[str, Any]:
+    run_id = execute(
+        """
+        INSERT INTO retrieval_run(
+          user_id, knowledge_base_id, query, top_k, status, hit_count,
+          max_score, quality_level, quality_json, duration_ms, created_at, updated_at
+        )
+        VALUES (
+          :user_id, :knowledge_base_id, :query, :top_k, :status, :hit_count,
+          :max_score, :quality_level, :quality_json, :duration_ms, :created_at, :updated_at
+        )
+        """,
+        {
+            "user_id": user_id,
+            "knowledge_base_id": knowledge_base_id,
+            "query": query,
+            "top_k": top_k,
+            "status": status,
+            "hit_count": quality.get("hitCount", len(chunks)),
+            "max_score": quality.get("maxScore", 0),
+            "quality_level": quality.get("qualityLevel", "no_match"),
+            "quality_json": json.dumps(quality, ensure_ascii=False),
+            "duration_ms": duration_ms,
+            "created_at": now_str(),
+            "updated_at": now_str(),
+        },
+    )
+    return normalize_retrieval_run(fetch_one("SELECT * FROM retrieval_run WHERE id=:id", {"id": run_id}))
+
+
+def update_retrieval_run_message(run_id: int | None, message_id: int | None) -> None:
+    if not run_id or not message_id:
+        return
+    execute(
+        "UPDATE retrieval_run SET message_id=:message_id, updated_at=:updated_at WHERE id=:id",
+        {"message_id": message_id, "updated_at": now_str(), "id": run_id},
+    )
+
+
+def normalize_retrieval_run(row: dict[str, Any] | None) -> dict[str, Any]:
+    if not row:
+        return {}
+    quality_raw = row.get("quality_json") or "{}"
+    try:
+        quality = json.loads(quality_raw)
+    except Exception:
+        quality = {}
+    return {
+        "id": row["id"],
+        "userId": row["user_id"],
+        "knowledgeBaseId": row["knowledge_base_id"],
+        "messageId": row.get("message_id"),
+        "query": row.get("query"),
+        "topK": row.get("top_k"),
+        "status": row.get("status"),
+        "hitCount": row.get("hit_count"),
+        "maxScore": row.get("max_score"),
+        "qualityLevel": row.get("quality_level"),
+        "quality": quality,
+        "durationMs": row.get("duration_ms") or 0,
+        "createdAt": row.get("created_at"),
+        "updatedAt": row.get("updated_at"),
+    }
+
+
+def save_references(message_id: int, chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for chunk in chunks:
+        execute(
+            """
+            INSERT INTO message_reference(message_id, document_id, chunk_id, score, created_at)
+            VALUES (:message_id, :document_id, :chunk_id, :score, :created_at)
+            """,
+            {
+                "message_id": message_id,
+                "document_id": chunk["document_id"],
+                "chunk_id": chunk["chunk_id"],
+                "score": chunk["score"],
+                "created_at": now_str(),
+            },
+        )
+        refs.append(
+            {
+                "documentId": chunk["document_id"],
+                "chunkId": chunk["chunk_id"],
+                "filename": chunk["filename"],
+                "score": chunk["score"],
+                "content": chunk["chunk_text"],
+            }
+        )
+    return refs
+
+
+def model_identity(chat_config: dict[str, Any] | None) -> str:
+    if not chat_config:
+        return "local fallback / no remote provider configured"
+    provider = chat_config.get("provider") or "unknown provider"
+    model_name = chat_config.get("model_name") or "unknown model"
+    return f"{provider} / {model_name}"
+
+
+def format_chat_attachments(attachments: list[ChatAttachment]) -> str:
+    blocks: list[str] = []
+    for idx, attachment in enumerate(attachments, start=1):
+        content = (attachment.content or "").strip()
+        if not content:
+            continue
+        blocks.append(
+            f"[上传文件 {idx}] 文件：{attachment.filename}\n"
+            f"类型：{attachment.fileType or 'unknown'}\n"
+            f"内容：{content[:6000]}"
+        )
+    return "\n\n".join(blocks)
+
+
+def build_messages(
+    question: str,
+    chunks: list[dict[str, Any]],
+    history: list[dict[str, Any]],
+    agent_mode: bool = False,
+    use_rag: bool = False,
+    chat_config: dict[str, Any] | None = None,
+    attachments: list[ChatAttachment] | None = None,
+) -> list[dict[str, str]]:
+    history_text = "\n".join(f"{item['role']}: {item['content']}" for item in history[-8:])
+    identity = model_identity(chat_config)
+    attachment_text = format_chat_attachments(attachments or [])
+    identity_rule = (
+        f"当前模型配置：{identity}。KnowFlow AI 只是外层应用和调用入口，不是你的模型身份。"
+        "如果用户询问你是什么模型、供应商或身份，只能根据当前模型配置回答，不要自称 KnowFlow AI。"
+    )
+    if use_rag:
+        context = "\n\n".join(
+            f"[参考资料 {idx}] 文件：{chunk['filename']}\n内容：{chunk['chunk_text']}"
+            for idx, chunk in enumerate(chunks, start=1)
+        )
+        system = (
+            identity_rule
+            + " 你正在执行带知识库上下文的问答。优先依据参考资料回答；"
+            "如果资料不足，必须说明资料不足，不要编造。"
+        )
+        user = (
+            f"历史会话：\n{history_text or '无'}\n\n参考资料：\n{context or '无相关资料'}"
+            f"\n\n上传文件：\n{attachment_text or '无'}\n\n用户问题：{question}"
+        )
+    else:
+        system = identity_rule + " 可以结合历史会话和用户上传文件回答，不要假装已经检索知识库。"
+        user = f"历史会话：\n{history_text or '无'}\n\n上传文件：\n{attachment_text or '无'}\n\n用户问题：{question}"
+    if agent_mode:
+        system += " 当前回答处于工具增强模式，需要简要说明使用了哪些依据。"
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def fallback_answer(
+    question: str,
+    chunks: list[dict[str, Any]],
+    history: list[dict[str, Any]],
+    agent_mode: bool = False,
+    use_rag: bool = False,
+    attachments: list[ChatAttachment] | None = None,
+) -> str:
+    attachment_text = format_chat_attachments(attachments or [])
+    if not chunks:
+        if attachment_text:
+            return (
+                f"已读取你上传的文件，并结合当前会话最近 {len(history)} 条消息。\n\n"
+                f"问题：{question}\n\n"
+                f"文件内容摘要依据：\n{attachment_text[:900]}"
+            )
+        if use_rag:
+            return "当前知识库没有检索到足够相关的资料。请先上传相关文档，或换一个更具体的问题。"
+        return f"本地 fallback 模型已收到问题：{question}\n\n当前没有启用 RAG 检索，因此本次回答不会引用知识库片段。"
+    prefix = "已调用知识库检索工具并整理如下回答：" if agent_mode else "基于知识库检索结果，回答如下："
+    lines = [prefix, "", f"问题：{question}", "", "参考依据："]
+    for idx, chunk in enumerate(chunks, start=1):
+        lines.append(f"{idx}. {chunk['filename']}（score={chunk['score']}）：{(chunk['chunk_text'] or '')[:180]}")
+    lines.append("")
+    lines.append(f"已结合当前会话最近 {len(history)} 条消息。真实模型未配置或调用失败，因此当前为本地 fallback 回答。")
+    return "\n".join(lines)
+
+
+def has_remote_model_config(chat_config: dict[str, Any] | None) -> bool:
+    return bool(chat_config and cipher.decrypt(chat_config.get("api_key_cipher")))
+
+
+def remote_model_error_answer(chat_config: dict[str, Any], exc: Exception) -> str:
+    base_url = chat_config.get("base_url") or ""
+    hints = [
+        "请检查接口地址、API Key、模型名称是否正确。",
+        "如果你填的是本机代理或 New API 地址，请确认对应服务正在运行，且 KnowFlow 后端能访问这个端口。",
+    ]
+    if "127.0.0.1" in base_url or "localhost" in base_url:
+        hints.append("注意：127.0.0.1/localhost 指的是 KnowFlow 后端所在机器，不一定是浏览器所在环境。")
+    return "\n".join(
+        [
+            "远程模型调用失败，未使用本地 fallback 伪装回答。",
+            "",
+            f"- 模型配置：{model_identity(chat_config)}",
+            f"- 接口地址：{base_url or '未配置'}",
+            f"- 失败原因：{exc}",
+            "",
+            "处理建议：",
+            *[f"- {hint}" for hint in hints],
+        ]
+    )
+
+
+def generate_answer(
+    question: str,
+    chunks: list[dict[str, Any]],
+    history: list[dict[str, Any]],
+    chat_config: dict[str, Any] | None,
+    agent_mode: bool = False,
+    use_rag: bool = False,
+    attachments: list[ChatAttachment] | None = None,
+) -> str:
+    if use_rag and not chunks and not attachments:
+        return fallback_answer(question, chunks, history, agent_mode, use_rag, attachments)
+    try:
+        return gateway.chat(build_messages(question, chunks, history, agent_mode, use_rag, chat_config, attachments), chat_config)
+    except Exception as exc:
+        if has_remote_model_config(chat_config):
+            return remote_model_error_answer(chat_config, exc)
+        return fallback_answer(question, chunks, history, agent_mode, use_rag, attachments) + f"\n\n模型调用失败原因：{exc}"
+
+
+def should_use_agent(question: str) -> bool:
+    text_value = question.lower()
+    agent_keywords = [
+        "agent",
+        "tool",
+        "工具",
+        "调用",
+        "总结",
+        "概括",
+        "提炼",
+        "亮点",
+        "草稿",
+        "博客",
+        "markdown",
+        "生成",
+        "整理",
+        "对比",
+        "分析",
+        "之前",
+        "刚才",
+        "历史",
+        "发布",
+        "同步",
+        "notion",
+        "github",
+    ]
+    return any(keyword in text_value for keyword in agent_keywords) or len(question) >= 80
+
+
+def log_tool_call(
+    session_id: str,
+    message_id: int | None,
+    tool_name: str,
+    input_payload: dict[str, Any],
+    output_text: str,
+    status: str = "success",
+    error_message: str | None = None,
+    started_at: float | None = None,
+) -> dict[str, Any]:
+    latency_ms = int((time.time() - (started_at or time.time())) * 1000)
+    tool_id = execute(
+        """
+        INSERT INTO agent_tool_call(
+          session_id, message_id, tool_name, input_json, output_text,
+          status, error_message, latency_ms, created_at
+        )
+        VALUES (
+          :session_id, :message_id, :tool_name, :input_json, :output_text,
+          :status, :error_message, :latency_ms, :created_at
+        )
+        """,
+        {
+            "session_id": session_id,
+            "message_id": message_id,
+            "tool_name": tool_name,
+            "input_json": json.dumps(input_payload, ensure_ascii=False),
+            "output_text": output_text,
+            "status": status,
+            "error_message": error_message,
+            "latency_ms": latency_ms,
+            "created_at": now_str(),
+        },
+    )
+    return {
+        "id": tool_id,
+        "toolName": tool_name,
+        "status": status,
+        "latencyMs": latency_ms,
+        "outputText": output_text,
+    }
+
+
+def sse_event(event: str, data: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"

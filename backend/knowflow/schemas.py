@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+from .config import DEFAULT_TOP_K
+
+
+class ModelConfigIn(BaseModel):
+    name: str = Field(min_length=1)
+    provider: str = Field(min_length=1)
+    modelType: str = Field(min_length=1)
+    baseUrl: str = Field(min_length=1)
+    apiKey: str = ""
+    modelName: str = Field(min_length=1)
+    temperature: float | None = None
+    topP: float | None = None
+    maxTokens: int | None = None
+
+
+class ModelConfigUpdate(BaseModel):
+    name: str | None = None
+    provider: str | None = None
+    modelType: str | None = None
+    baseUrl: str | None = None
+    apiKey: str | None = None
+    modelName: str | None = None
+    temperature: float | None = None
+    topP: float | None = None
+    maxTokens: int | None = None
+
+
+class KnowledgeBaseIn(BaseModel):
+    name: str = Field(min_length=1)
+    description: str = ""
+    embeddingModelConfigId: int
+
+
+class KnowledgeBaseUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
+class ChatAttachment(BaseModel):
+    filename: str
+    fileType: str | None = None
+    mimeType: str | None = None
+    content: str = ""
+    previewUrl: str | None = None
+
+
+class ChatRequest(BaseModel):
+    knowledgeBaseId: int | None = None
+    sessionId: str | None = None
+    question: str = Field(min_length=1)
+    chatModelConfigId: int | None = None
+    useRag: bool = False
+    autoAgent: bool = True
+    enableTools: bool = False
+    toolMode: str = "auto"
+    enabledTools: list[str] = []
+    attachments: list[ChatAttachment] = []
+
+
+class RetrievalDebugRequest(BaseModel):
+    knowledgeBaseId: int
+    query: str = Field(min_length=1)
+    topK: int = DEFAULT_TOP_K
+
+
+class SessionUpdate(BaseModel):
+    title: str = Field(min_length=1)
+
+
+class SyncTaskIn(BaseModel):
+    sourceType: str
+    sourceUrl: str = ""
+    targetType: str = "knowledge_base"
+    knowledgeBaseId: int | None = None
+
+
+class GithubPublishIn(BaseModel):
+    repo: str
+    branch: str = "main"
+    path: str
+    content: str
+
+
+class RegisterIn(BaseModel):
+    username: str = Field(min_length=2, max_length=80)
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=6, max_length=128)
+    displayName: str | None = None
+
+
+class LoginIn(BaseModel):
+    account: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=1, max_length=128)

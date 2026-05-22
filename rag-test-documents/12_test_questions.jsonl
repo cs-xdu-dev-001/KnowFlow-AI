@@ -1,0 +1,6 @@
+{"id": 1, "type": "summary", "question": "总结 KnowFlow AI 的核心功能和技术亮点。", "expected_sources": ["01", "02", "07"]}
+{"id": 2, "type": "detail", "question": "为什么知识库创建时要绑定 Embedding 模型？", "expected_sources": ["02", "03", "07"]}
+{"id": 3, "type": "conflict", "question": "当前最新版 KnowFlow 是否支持 GitHub OAuth 和 Gemini？", "expected_sources": ["08", "09"]}
+{"id": 4, "type": "negative", "question": "这个知识库里有没有说明如何养猫？", "expected_sources": ["10"], "expected_behavior": "应说明资料不足，不应编造。"}
+{"id": 5, "type": "resume", "question": "把校园行为异常识别微调项目改写成简历项目经历。", "expected_sources": ["04"]}
+{"id": 6, "type": "backend", "question": "本地生活探店平台中 Redis、JWT 和 ThreadLocal 分别解决什么问题？", "expected_sources": ["06"]}

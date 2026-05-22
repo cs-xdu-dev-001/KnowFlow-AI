@@ -1,0 +1,71 @@
+{
+  "project": "KnowFlow AI RAG and tool design",
+  "core_chain": [
+    "upload document",
+    "calculate md5",
+    "parse content",
+    "split text chunks",
+    "embedding vectorization",
+    "store metadata in SQL",
+    "store vectors in Chroma or local vector backend",
+    "retrieve top-k chunks during chat",
+    "build prompt with history and references",
+    "save answer and references"
+  ],
+  "tools": [
+    {
+      "name": "knowledge_search",
+      "purpose": "search related chunks from selected knowledge base",
+      "inputs": [
+        "knowledgeBaseId",
+        "query",
+        "topK"
+      ],
+      "outputs": [
+        "chunkId",
+        "documentId",
+        "filename",
+        "score",
+        "content"
+      ]
+    },
+    {
+      "name": "session_memory_search",
+      "purpose": "read current session history for continuation",
+      "inputs": [
+        "sessionId",
+        "limit"
+      ],
+      "outputs": [
+        "role",
+        "content",
+        "createdAt"
+      ]
+    },
+    {
+      "name": "document_summary",
+      "purpose": "summarize selected document or retrieved chunks",
+      "inputs": [
+        "documentId",
+        "chunkIds",
+        "summaryType"
+      ],
+      "outputs": [
+        "summary"
+      ]
+    },
+    {
+      "name": "markdown_draft_generate",
+      "purpose": "generate project notes, study summaries, or markdown drafts",
+      "inputs": [
+        "title",
+        "contentType",
+        "sourceText"
+      ],
+      "outputs": [
+        "markdown"
+      ]
+    }
+  ],
+  "rule": "If no knowledge base is selected, normal chat should not force RAG. If a knowledge base is selected, retrieval context is enabled automatically."
+}

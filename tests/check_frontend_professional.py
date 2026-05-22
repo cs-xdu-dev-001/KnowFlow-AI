@@ -1,0 +1,240 @@
+﻿from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def read_text(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def read_frontend_markup() -> str:
+    files = [
+        ROOT / "frontend" / "index.html",
+        ROOT / "frontend" / "react" / "index.html",
+        *sorted((ROOT / "frontend" / "react" / "src").rglob("*.jsx")),
+    ]
+    return "\n".join(path.read_text(encoding="utf-8") for path in files if path.is_file())
+
+
+def assert_contains(text: str, token: str, label: str) -> None:
+    assert token in text, f"missing {label}: {token}"
+
+
+def main() -> None:
+    html = read_frontend_markup()
+    css = read_text("frontend/styles.css")
+    react_css = read_text("frontend/react/src/styles.css")
+    js = "\n".join(
+        [
+            read_text("frontend/react/src/controller/knowflowController.js"),
+            *[
+                path.read_text(encoding="utf-8")
+                for path in sorted((ROOT / "frontend" / "react" / "src" / "components").rglob("*.jsx"))
+            ],
+        ]
+    )
+    combined = "\n".join([html, css, js])
+    assert css == react_css, "React Vite stylesheet should stay synced with served fallback stylesheet"
+
+    mojibake_tokens = [
+        "\u93c5",
+        "\u943d",
+        "\u935a",
+        "\u7eee",
+        "\u6d7c",
+        "\u701b",
+        "\u6d93",
+    ]
+    for token in mojibake_tokens:
+        assert token not in combined, f"frontend contains mojibake token: {token}"
+
+    required_html = [
+        ("app-shell", "app shell"),
+        ("sidebar", "professional sidebar"),
+        ("page-chat", "chat page"),
+        ("page-knowledge", "knowledge page"),
+        ("page-settings", "settings page"),
+        ("evidence-drawer", "evidence drawer"),
+        ("chat-history-shell", "ChatGPT-style chat history shell"),
+        ("sidebar-session-search", "sidebar session search"),
+        ("sidebar-bottom-tools", "bottom tool settings area"),
+        ("knowledge-shell", "knowledge shell"),
+        ("knowledge-primary", "knowledge primary workspace"),
+        ("open-kb-modal-btn", "knowledge creation modal trigger"),
+        ("kb-modal", "knowledge creation modal"),
+        ("chunk-modal", "chunk preview modal"),
+        ("retrieval-drawer", "retrieval debug drawer"),
+        ("open-retrieval-drawer-btn", "retrieval drawer trigger"),
+        ('src="/src/main.jsx"', "React Vite entry script"),
+        ("data-provider={provider.key}", "custom provider card"),
+        ("model-provider", "editable provider identifier"),
+        ("\u667a\u80fd\u95ee\u7b54", "Chinese chat title"),
+        ("\u77e5\u8bc6\u5e93\u4e0a\u4e0b\u6587", "optional knowledge-base context"),
+        ("\u5f15\u7528\u7247\u6bb5", "reference panel"),
+        ("\u6a21\u578b\u4f9b\u5e94\u5546", "provider settings copy"),
+    ]
+    for token, label in required_html:
+        assert_contains(html, token, label)
+    for token in ["prompt-shelf", "prompt-chip", "总结知识库", "生成项目亮点", "对比方案"]:
+        assert token not in html, f"redundant prompt suggestion shelf should not render: {token}"
+
+    required_css = [
+        ("--sidebar-width", "layout token"),
+        (".sidebar.collapsed", "collapsed sidebar style"),
+        (".chat-layout", "chat layout"),
+        (".message.assistant", "assistant message style"),
+        (".provider-grid", "provider cards"),
+        (".drawer-collapsed", "drawer collapsed behavior"),
+        (".chat-history-shell", "chat history sidebar style"),
+        (".session-menu-button", "three-dot session menu style"),
+        (".session-popover", "session action popover style"),
+        (".sidebar-bottom-tools", "bottom settings tools style"),
+        (".knowledge-shell", "knowledge shell style"),
+        (".knowledge-primary", "knowledge primary style"),
+        (".kb-row", "knowledge list row style"),
+        (".document-table", "compact document table"),
+        (".modal-backdrop", "modal shell style"),
+        (".retrieval-drawer", "retrieval drawer style"),
+        (".document-steps", "document processing stepper"),
+        (".document-error", "document failure reason panel"),
+        (".badge.progress", "in-progress document badge"),
+        (".thinking-indicator", "assistant thinking animation"),
+        (".message-row.thinking-row .message-actions", "hide assistant actions while thinking"),
+        ("@keyframes messageBreath", "breathing wait animation"),
+        (".message.assistant pre", "assistant code block rendering"),
+        ("Professional surface polish pass 3", "formal workspace polish marker"),
+        ("--accent: #0f766e", "mature teal accent token"),
+        ("Codex console polish pass", "Codex-inspired console polish marker"),
+        ("--console-sidebar: #111315", "dark agent console sidebar token"),
+        ("--accent: #10a37f", "Codex-inspired green accent token"),
+        (".sidebar .nav-item.active", "Codex-style active sidebar item"),
+        (".composer-shell::before", "command-input composer affordance"),
+        (".message.assistant", "quiet assistant response surface"),
+        ("Codex empty-state pass", "Codex-style empty state polish marker"),
+        (".welcome-card", "unframed first-run welcome state"),
+        (".sidebar .user-menu-button", "dark sidebar account state"),
+        (".evidence-drawer .empty-state", "quiet evidence drawer empty state"),
+        ("Mobile console layout pass", "mobile sidebar recovery marker"),
+        ("Mobile auth layout pass", "mobile auth screen recovery marker"),
+        ("body.sidebar-collapsed .app-shell", "collapsed sidebar mobile override"),
+        (".sidebar-tool span:not(.nav-icon)", "mobile icon-only sidebar tools"),
+        ("Accessibility polish pass", "keyboard accessibility polish marker"),
+        (".skip-link", "skip link style"),
+        (":focus-visible", "visible keyboard focus rings"),
+        ("@media (prefers-reduced-motion: reduce)", "reduced motion support"),
+        ("overflow-x: hidden", "horizontal overflow guard"),
+        ("Monochrome theme pass", "black and white theme polish marker"),
+        ("Monochrome contrast correction", "monochrome sidebar contrast correction marker"),
+        ("Unified app theme pass", "single app-wide theme surface marker"),
+        ("Dark surface correction pass", "dark mode surface correction marker"),
+        ("Night mode audit pass", "dark mode second-pass audit marker"),
+        ("Settings night finish pass", "dark settings finish-pass marker"),
+        ("--rail-bg", "sidebar surface token"),
+        ("--workspace-bg", "workspace surface token"),
+        ("--control-bg", "shared control surface token"),
+        ("background: var(--rail-bg)", "sidebar uses theme rail surface"),
+        ("background: var(--workspace-bg)", "workspace uses theme surface"),
+        ('[data-theme="mono-dark"]', "dark monochrome theme variables"),
+        (".theme-toggle", "theme toggle style"),
+        ("--mono-control-bg", "monochrome control token"),
+        (":root[data-theme=\"mono-dark\"] #composer-menu .composer-settings-panel", "dark composer menu panel override"),
+        (":root[data-theme=\"mono-dark\"] .kb-row.active", "dark knowledge active row override"),
+        ("background: color-mix(in srgb, var(--panel-bg) 94%, #000)", "dark popover surface mix"),
+        (":root[data-theme=\"mono-dark\"] .actions button.danger", "dark danger button override"),
+        (":root[data-theme=\"mono-dark\"] .badge.ok", "dark success badge override"),
+        (":root[data-theme=\"mono-dark\"] .sidebar button:focus-visible", "dark sidebar focus ring override"),
+        (":root[data-theme=\"mono-dark\"] .file-drop.has-file", "dark upload file state override"),
+        (":root[data-theme=\"mono-dark\"] .user-popover button:hover", "dark popover hover override"),
+        (":root[data-theme=\"mono-dark\"] #page-settings .provider-card.selected", "dark provider selected override"),
+        (":root[data-theme=\"mono-dark\"] #model-list .actions button.danger", "dark model danger action override"),
+        (":root[data-theme=\"mono-dark\"] #theme-toggle-btn[aria-pressed=\"true\"] .nav-icon", "dark theme toggle icon override"),
+        ("font-variant-numeric: tabular-nums", "tabular numeric polish"),
+        ("transition-property: transform, background-color, box-shadow", "targeted interaction transitions"),
+        ("@media (hover: hover)", "pointer-safe hover states"),
+    ]
+    for token, label in required_css:
+        assert_contains(css, token, label)
+
+    required_react_shell = [
+        ('className="skip-link"', "React skip link"),
+        ('href="#main-stage"', "skip link target"),
+        ('id="main-stage"', "main content landmark id"),
+        ("tabIndex={-1}", "focusable main landmark"),
+    ]
+    app = read_text("frontend/react/src/App.jsx")
+    for token, label in required_react_shell:
+        assert_contains(app, token, label)
+
+    theme_toggle = read_text("frontend/react/src/components/ThemeToggle.jsx")
+    required_theme_toggle = [
+        ("function ThemeToggle", "theme toggle component"),
+        ("knowflow-theme", "persisted theme key"),
+        ("document.documentElement.dataset.theme", "html theme data attribute"),
+        ("document.body.dataset.theme", "body theme data attribute"),
+        ('id={"theme-toggle-btn"}', "theme toggle button id"),
+    ]
+    for token, label in required_theme_toggle:
+        assert_contains(theme_toggle, token, label)
+    assert "姝ｅ湪缁勭粐鍥炵瓟" not in combined, "thinking state should not render visible waiting copy"
+    assert "streaming:empty" not in css, "empty streaming pseudo-copy should not come back"
+
+    required_js = [
+        ("const PROVIDER_PRESETS", "provider presets"),
+        ("custom: {", "custom provider preset"),
+        ("providerKey", "custom provider resolver"),
+        ("mimo", "MiMo provider"),
+        ("applyProviderPreset", "provider auto-fill"),
+        ("useRag: Boolean(knowledgeBaseId)", "automatic RAG behavior"),
+        ('useRag: Boolean(knowledgeBaseId)', "knowledge-base toggle drives RAG"),
+        ('enableTools: false', "manual tool routing disabled from simplified composer"),
+        ('enabledTools: []', "manual tool list is no longer user-facing"),
+        ('autoAgent: false', "automatic agent routing disabled from simplified composer"),
+        ("toggleSidebar", "sidebar interaction"),
+        ("toggleDrawer", "drawer interaction"),
+        ("state.sessions", "session state"),
+        ("groupSessions", "session grouping"),
+        ("filterSessions", "session filtering"),
+        ("toggleSessionMenu", "three-dot session menu"),
+        ("renameSession", "rename session action"),
+        ("openKnowledgeBaseModal", "knowledge creation modal open action"),
+        ("closeKnowledgeBaseModal", "knowledge creation modal close action"),
+        ("openChunkModal", "chunk modal open action"),
+        ("closeChunkModal", "chunk modal close action"),
+        ("openRetrievalDrawer", "retrieval drawer open action"),
+        ("closeRetrievalDrawer", "retrieval drawer close action"),
+        ("renderDocumentRows", "compact document row renderer"),
+        ("DOCUMENT_STEPS", "document status step definitions"),
+        ("scheduleDocumentPolling", "document processing polling"),
+        ('parse_status: "uploading"', "optimistic upload state"),
+        ("document-error", "document error state"),
+        ("renderMarkdown", "assistant markdown renderer"),
+        ("setMessageContent", "message content rendering helper"),
+        ("setMessageThinking", "assistant thinking state helper"),
+        ("thinking-row", "thinking row state for action hiding"),
+    ]
+    for token, label in required_js:
+        assert_contains(js, token, label)
+    assert ".prompt-chip" not in js, "legacy prompt chip bindings should stay removed"
+    for token in ["tool-mode-tabs", "manual-tool-options", "tool-option-grid", "react-tool-mode-change", "react-tool-selection-change"]:
+        assert token not in combined, f"redundant manual tool UI should stay removed: {token}"
+
+    forbidden_manual_modes = [
+        "Direct Chat",
+        "RAG Chat",
+        "Agent Chat",
+        "\u76f4\u63a5\u5bf9\u8bdd",
+        "RAG \u804a\u5929",
+        "\u667a\u80fd\u4f53\u804a\u5929",
+        'data-page="sessions"',
+        'class="document-grid"',
+        'class="document-workbench"',
+        'class="panel stack-form retrieval-card"',
+    ]
+    for token in forbidden_manual_modes:
+        assert token not in html, f"manual chat mode button should not appear: {token}"
+
+
+if __name__ == "__main__":
+    main()
+

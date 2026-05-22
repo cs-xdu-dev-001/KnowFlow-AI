@@ -1,0 +1,105 @@
+from __future__ import annotations
+
+import os
+from datetime import datetime
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+PACKAGE_DIR = Path(__file__).resolve().parent
+BACKEND_DIR = PACKAGE_DIR.parent
+PROJECT_DIR = BACKEND_DIR.parent
+FRONTEND_DIR = PROJECT_DIR / "frontend"
+FRONTEND_BUILD_DIR = FRONTEND_DIR / "dist"
+FRONTEND_STATIC_DIR = FRONTEND_BUILD_DIR if FRONTEND_BUILD_DIR.exists() else FRONTEND_DIR
+FRONTEND_ASSETS_DIR = FRONTEND_STATIC_DIR / "assets" if FRONTEND_BUILD_DIR.exists() else FRONTEND_DIR
+DATA_DIR = PROJECT_DIR / "data"
+UPLOAD_DIR = DATA_DIR / "uploads"
+
+load_dotenv(BACKEND_DIR / ".env")
+
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+def env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+def normalize_sqlite_db_url(raw_url: str) -> str:
+    if not raw_url.startswith("sqlite:///"):
+        return raw_url
+
+    raw_path = raw_url.removeprefix("sqlite:///")
+    if raw_path == ":memory:":
+        return raw_url
+
+    db_path = Path(raw_path)
+    if not db_path.is_absolute():
+        db_path = (PROJECT_DIR / raw_path).resolve()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    return f"sqlite:///{db_path.as_posix()}"
+
+
+def now_str() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+DB_URL = normalize_sqlite_db_url(os.getenv("KNOWFLOW_DB_URL", f"sqlite:///{(DATA_DIR / 'knowflow.db').as_posix()}"))
+VECTOR_BACKEND = os.getenv("KNOWFLOW_VECTOR_BACKEND", "local").lower()
+CHROMA_DIR = Path(os.getenv("KNOWFLOW_CHROMA_DIR", str(DATA_DIR / "chroma")))
+SECRET_KEY = os.getenv("KNOWFLOW_SECRET_KEY", "change-this-dev-secret")
+BASE_URL = os.getenv("KNOWFLOW_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+GITHUB_CLIENT_ID = os.getenv("KNOWFLOW_GITHUB_CLIENT_ID", "")
+GITHUB_CLIENT_SECRET = os.getenv("KNOWFLOW_GITHUB_CLIENT_SECRET", "")
+SESSION_COOKIE_NAME = "knowflow_session"
+AUTH_SESSION_TTL_SECONDS = env_int("KNOWFLOW_AUTH_SESSION_TTL", 7 * 24 * 60 * 60)
+COOKIE_SECURE = os.getenv("KNOWFLOW_COOKIE_SECURE", "0") == "1"
+CHUNK_SIZE = env_int("KNOWFLOW_CHUNK_SIZE", 800)
+CHUNK_OVERLAP = env_int("KNOWFLOW_CHUNK_OVERLAP", 120)
+DEFAULT_TOP_K = env_int("KNOWFLOW_TOP_K", 5)
+RETRIEVAL_SCORE_THRESHOLD = env_float("KNOWFLOW_RAG_SCORE_THRESHOLD", 0.25)
+MODEL_REQUEST_TIMEOUT = env_int("KNOWFLOW_MODEL_REQUEST_TIMEOUT", 45)
+MODEL_TRUST_ENV = os.getenv("KNOWFLOW_MODEL_TRUST_ENV", "0") == "1"
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+IMAGE_MIME_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+}
+MAX_UPLOAD_FILE_SIZE = env_int("KNOWFLOW_MAX_UPLOAD_FILE_SIZE", 25 * 1024 * 1024)
+ALLOWED_UPLOAD_SUFFIXES = {
+    ".txt",
+    ".md",
+    ".markdown",
+    ".log",
+    ".yaml",
+    ".yml",
+    ".xml",
+    ".json",
+    ".csv",
+    ".tsv",
+    ".html",
+    ".htm",
+    ".rtf",
+    ".pdf",
+    ".docx",
+    ".xlsx",
+    ".xlsm",
+    ".pptx",
+    *IMAGE_SUFFIXES,
+}

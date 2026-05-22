@@ -1,0 +1,23 @@
+import { ChatComposerForm } from "./ChatComposerForm.jsx";
+import { ChatContextToolbar } from "./ChatContextToolbar.jsx";
+import { ChatEvidenceDrawer } from "./ChatEvidenceDrawer.jsx";
+import { ChatMessages } from "./ChatMessages.jsx";
+import { ChatTopbar } from "./ChatTopbar.jsx";
+import { ThemeToggle } from "./ThemeToggle.jsx";
+
+export function ChatPage() {
+  return (
+    <section className={"page active"} id={"page-chat"}>
+      <div className={"chat-layout"}>
+        <section className={"chat-panel"}>
+          <ThemeToggle className={"chat-theme-toggle"} />
+          <ChatTopbar />
+          <ChatContextToolbar />
+          <ChatMessages />
+          <ChatComposerForm />
+        </section>
+        <ChatEvidenceDrawer />
+      </div>
+    </section>
+  );
+}

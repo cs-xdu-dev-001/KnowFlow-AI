@@ -1,0 +1,5 @@
+﻿项目,技术栈,核心能力,适合考察点
+KnowFlow AI,FastAPI / SQLite / Chroma / LangChain,文档入库、RAG 问答、模型配置、会话管理,RAG 链路、数据隔离、模型网关
+校园行为异常识别微调,LLaMA-Factory / Qwen2.5 / LoRA SFT,行为特征自然语言化、指令数据集、基线对比,微调数据构造、指标分析、误判样本分析
+本地生活探店平台,Spring Boot / MyBatis / Redis / JWT,商家后台、分类套餐、门店状态、认证拦截,后端 CRUD、缓存、鉴权、接口文档
+RAG + Agent 早期项目,LangChain / Chroma / DashScope / FastAPI,文档检索、会话记忆、工具调用日志,工具封装、引用追踪、Prompt 拼接

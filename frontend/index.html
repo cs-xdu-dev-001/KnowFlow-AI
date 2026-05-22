@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KnowFlow AI</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        background: #f7f6f2;
+        color: #171717;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+      }
+
+      main {
+        width: min(520px, calc(100vw - 40px));
+        border: 1px solid rgba(23, 23, 23, 0.12);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.78);
+        box-shadow: 0 24px 80px rgba(20, 20, 20, 0.12);
+        padding: 32px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 24px;
+      }
+
+      .mark {
+        width: 44px;
+        height: 44px;
+        display: grid;
+        place-items: center;
+        border-radius: 12px;
+        background: #151515;
+        color: #ffffff;
+        font-weight: 800;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 26px;
+        line-height: 1.2;
+      }
+
+      p {
+        margin: 0 0 18px;
+        color: #5f5b53;
+        line-height: 1.7;
+      }
+
+      code {
+        border-radius: 6px;
+        background: #ebe8df;
+        color: #151515;
+        padding: 2px 6px;
+        font-size: 0.94em;
+      }
+
+      .command {
+        display: block;
+        margin-top: 10px;
+        border-radius: 10px;
+        padding: 12px 14px;
+        overflow-x: auto;
+        font-size: 14px;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          background: #101010;
+          color: #f4f2ec;
+        }
+
+        main {
+          border-color: rgba(244, 242, 236, 0.14);
+          background: rgba(23, 23, 23, 0.86);
+          box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+        }
+
+        .mark {
+          background: #f4f2ec;
+          color: #101010;
+        }
+
+        p {
+          color: #bbb5aa;
+        }
+
+        code {
+          background: #242424;
+          color: #f4f2ec;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">
+        <div class="mark">K</div>
+        <h1>KnowFlow AI 前端需要先构建</h1>
+      </div>
+      <p>
+        旧版静态 <code>app.js</code> 已经移除。现在前端只走 React + Vite：
+        开发时启动 Vite，生产预览时先生成 <code>frontend/dist</code>。
+      </p>
+      <p>开发运行：</p>
+      <code class="command">cd frontend && npm run dev</code>
+      <p style="margin-top: 18px;">生产构建：</p>
+      <code class="command">cd frontend && npm run build</code>
+    </main>
+  </body>
+</html>

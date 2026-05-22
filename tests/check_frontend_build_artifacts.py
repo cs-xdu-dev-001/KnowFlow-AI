@@ -1,0 +1,86 @@
+import re
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def read(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def read_active_dist_assets(dist: Path) -> str:
+    index = (dist / "index.html").read_text(encoding="utf-8")
+    parts = [index]
+    for asset in re.findall(r'["\'](/assets/[^"\']+)["\']', index):
+        asset_path = dist / asset.lstrip("/")
+        if asset_path.exists() and asset_path.is_file():
+            parts.append(asset_path.read_text(encoding="utf-8"))
+
+    return "\n".join(parts)
+
+
+def read_react_shell() -> str:
+    files = [
+        "frontend/react/src/App.jsx",
+        "frontend/react/src/components/AuthScreen.jsx",
+        "frontend/react/src/components/Sidebar.jsx",
+        "frontend/react/src/components/ChatPage.jsx",
+        "frontend/react/src/components/KnowledgePage.jsx",
+        "frontend/react/src/components/SettingsPage.jsx",
+        "frontend/react/src/components/Toast.jsx",
+        "frontend/react/src/components/KnowFlowController.jsx",
+    ]
+    return "\n".join(read(path) for path in files)
+
+
+def main() -> None:
+    react_css = read("frontend/react/src/styles.css")
+    react_shell = read_react_shell()
+    gitignore = read(".gitignore")
+    package_json = read("frontend/package.json")
+    sync_assets = read("frontend/scripts/sync-assets.mjs")
+    controller_js = read("frontend/react/src/controller/knowflowController.js")
+
+    assert "姝ｅ湪缁勭粐鍥炵瓟" not in react_css
+    assert "streaming:empty" not in react_css
+    assert ".thinking-indicator" in react_css
+    assert ".message-row.thinking-row .message-actions" in react_css
+    assert "appendMessage(\"assistant\", \"\", { thinking: true })" in controller_js
+    assert "setMessageThinking" in controller_js
+    assert "renderMarkdown" in controller_js
+    assert "legacyTemplate" not in react_shell
+    assert "dangerouslySetInnerHTML" not in react_shell
+    assert "legacyApp.js" not in react_shell
+    assert "LegacyControllerBridge" not in react_shell
+    assert "auth-screen" in react_shell
+    assert "app-shell" in react_shell
+    assert "frontend/node_modules/" in gitignore
+    assert "frontend/vite-dev*.log" in gitignore
+    assert "frontend/codex-polish-*.png" in gitignore
+    assert '"sync:assets": "node scripts/sync-assets.mjs"' in package_json
+    assert '"sync:styles": "npm run sync:assets"' in package_json
+    assert '"prebuild": "npm run sync:assets"' in package_json
+    assert '"predev": "npm run sync:assets"' in package_json
+    assert '["styles.css", "react/src/styles.css"]' in sync_assets
+    assert "legacyApp.js" not in sync_assets
+    assert '["app.js", "react/public/assets/legacyApp.js"]' not in sync_assets
+    assert "copyFileSync(source, target)" in sync_assets
+    assert not (ROOT / "frontend" / "app.js").exists()
+    assert not (ROOT / "frontend" / "react" / "public" / "assets" / "legacyApp.js").exists()
+
+    dist = ROOT / "frontend" / "dist"
+    if dist.exists():
+        assert not (dist / "assets" / "legacyApp.js").exists()
+        dist_text = read_active_dist_assets(dist)
+        assert "姝ｅ湪缁勭粐鍥炵瓟" not in dist_text
+        assert "streaming:empty" not in dist_text
+        assert "legacyApp.js" not in dist_text
+        assert "thinking-indicator" in dist_text
+        assert "thinking-row" in dist_text
+        assert "auth-screen" in dist_text
+        assert "app-shell" in dist_text
+
+
+if __name__ == "__main__":
+    main()

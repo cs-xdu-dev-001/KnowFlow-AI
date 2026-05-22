@@ -1,0 +1,32 @@
+{
+  "name": "校园行为异常识别大模型微调项目",
+  "role": "项目负责人",
+  "scenario": "基于学业、餐饮、考勤、体质、网络、图书馆、运动等多维校园行为数据判断学生行为是否异常。",
+  "dataset": {
+    "features": 62,
+    "construction": "将结构化行为特征转化为自然语言描述，构造 Alpaca 格式指令微调数据集。",
+    "issues": [
+      "缺失字段",
+      "全零字段",
+      "类别不平衡",
+      "跨月份字段不一致"
+    ]
+  },
+  "methods": [
+    "P 值语义化：以正常群体分布为参照，将原始数值特征转化为百分位偏离描述。",
+    "LoRA SFT：基于 LLaMA-Factory 对 Qwen2.5 系列模型进行监督微调。",
+    "数据构造对照：Self-Refine、因果 CoT、反事实 CoT。",
+    "传统模型基线：Logistic Regression、RandomForest、LightGBM。"
+  ],
+  "metrics": [
+    "Accuracy",
+    "Precision",
+    "Recall",
+    "F1"
+  ],
+  "findings": [
+    "精炼压缩可能造成关键行为信息丢失。",
+    "因果 CoT 可提高召回率，但可能降低精度。",
+    "误判样本分析可反向优化数据构造策略。"
+  ]
+}
