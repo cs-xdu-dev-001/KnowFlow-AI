@@ -245,6 +245,10 @@ npm run build
 - Use HTTPS and set `KNOWFLOW_COOKIE_SECURE=1` when deploying behind a real domain.
 - Review OAuth callback URLs before publishing a deployment.
 
+## License
+
+KnowFlow AI is released under the MIT License.
+
 ## Current Status
 
-KnowFlow AI is usable as a local knowledge base assistant and development prototype. The main remaining engineering work is to finish removing legacy DOM-controller code from the React frontend and introduce versioned database migrations for larger schema changes.
+KnowFlow AI is usable as a local knowledge base assistant and development prototype. The main remaining engineering work is to introduce versioned database migrations and broaden end-to-end coverage around document ingestion, retrieval quality, and authentication flows.

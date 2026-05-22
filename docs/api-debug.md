@@ -1,4 +1,4 @@
-﻿# KnowFlow AI 接口调试文档
+# KnowFlow AI 接口调试文档
 
 本文档用于配合 FastAPI 自动生成的 Swagger UI 调试接口，作用类似 Spring Boot 项目中的 Knife4j 页面。
 
@@ -53,7 +53,8 @@
 
 ### RAG 调试
 
-- `POST /api/retrieval/debug`：输入知识库 ID、问题和 Top-K，查看召回片段、匹配分数和向量后端。
+- `POST /api/retrieval/debug`：输入知识库 ID、问题和 Top-K，查看召回片段、匹配分数、命中词、质量判断和向量后端。
+- `GET /api/retrieval/runs/{run_id}`：查询一次检索运行的持久化详情，包括 `quality`、`hitCount`、`maxScore`、`qualityLevel`、`durationMs` 和关联消息。
 
 示例请求：
 
@@ -62,6 +63,34 @@
   "knowledgeBaseId": 1,
   "query": "RAG 如何降低幻觉？",
   "topK": 5
+}
+```
+
+示例响应中的核心字段：
+
+```json
+{
+  "quality": {
+    "enabled": true,
+    "hitCount": 3,
+    "maxScore": 0.82,
+    "qualityLevel": "strong",
+    "reason": "召回片段与问题匹配度较高。",
+    "suggestions": []
+  },
+  "retrievalRun": {
+    "id": 12,
+    "knowledgeBaseId": 1,
+    "status": "success",
+    "durationMs": 18
+  },
+  "chunks": [
+    {
+      "rank": 1,
+      "score": 0.82,
+      "matchedTerms": ["RAG", "幻觉"]
+    }
+  ]
 }
 ```
 
@@ -94,7 +123,7 @@
 4. 调用 `POST /api/model-configs/{id}/test` 测试模型是否可用。
 5. 创建知识库并绑定 Embedding 模型。
 6. 上传文档，确认后台任务最终进入 `success / done / 100` 状态。
-7. 使用 `POST /api/retrieval/debug` 调试 RAG 召回效果。
+7. 使用 `POST /api/retrieval/debug` 调试 RAG 召回效果，并用 `GET /api/retrieval/runs/{run_id}` 回看检索质量记录。
 8. 使用 `POST /api/chat/stream` 调试最终问答效果。
 
 ## 说明
