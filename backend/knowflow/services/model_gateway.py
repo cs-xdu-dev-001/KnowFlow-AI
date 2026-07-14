@@ -25,7 +25,7 @@ class ModelGateway:
             if row:
                 return row
             if user_id is not None:
-                raise HTTPException(status_code=404, detail="模型配置不存在")
+                raise HTTPException(status_code=404, detail="Model configuration not found.")
         if user_id is not None:
             return self.fetch_one(
                 "SELECT * FROM model_config WHERE model_type=:model_type AND is_default=1 AND user_id=:user_id ORDER BY id DESC LIMIT 1",
@@ -42,14 +42,14 @@ class ModelGateway:
             if model_type == "embedding":
                 vector = self.embed("ping", config)
                 if vector:
-                    return "available", f"连接成功，返回 {len(vector)} 维向量"
+                    return "available", f"Connection succeeded. The model returned a {len(vector)}-dimension vector."
             else:
                 answer = self.chat([{"role": "user", "content": "ping"}], config)
                 if answer:
-                    return "available", "连接成功，模型返回正常"
+                    return "available", "Connection succeeded. The model returned a normal response."
         except Exception as exc:
             return "unavailable", str(exc)
-        return "unavailable", "模型未返回有效结果"
+        return "unavailable", "The model did not return a valid result."
 
     def endpoint(self, base_url: str, path: str) -> str:
         base = base_url.rstrip("/")
@@ -101,9 +101,9 @@ class ModelGateway:
     def local_answer(self, messages: list[dict[str, str]]) -> str:
         system_content = next((item["content"] for item in messages if item["role"] == "system"), "")
         user_content = next((item["content"] for item in reversed(messages) if item["role"] == "user"), "")
-        if any(keyword in user_content for keyword in ["什么模型", "供应商", "你是谁", "身份", "model", "provider"]):
-            match = re.search(r"当前模型配置：([^。]+)", system_content)
+        identity_keywords = ["model", "provider", "identity", "who are you", "\u4ec0\u4e48\u6a21\u578b", "\u4f9b\u5e94\u5546", "\u4f60\u662f\u8c01", "\u8eab\u4efd"]
+        if any(keyword in user_content.lower() for keyword in identity_keywords):
+            match = re.search(r"Current model configuration: ([^.]+)", system_content)
             identity = match.group(1) if match else "local fallback / no remote provider configured"
-            return f"当前选择的模型配置是：{identity}。KnowFlow AI 只是外层应用入口。"
-        return "本地 fallback 模型已接收问题：" + user_content
-
+            return f"The current model configuration is {identity}. KnowFlow AI is only the application wrapper and entry point."
+        return "Local fallback model received the question: " + user_content

@@ -1,102 +1,91 @@
+import { providerPresets } from "../data/settings.js";
 import { ModelProviderSelector } from "./ModelProviderSelector.jsx";
 
-export function ModelConfigForm() {
-  const handleModelProviderInput = (event) => {
-    window.dispatchEvent(
-      new CustomEvent("knowflow:react-model-provider-input", {
-        detail: { value: event.target.value || "" },
-      }),
-    );
-  };
-
-  const handleModelPresetChange = (event) => {
-    window.dispatchEvent(
-      new CustomEvent("knowflow:react-model-preset-change", {
-        detail: { value: event.target.value || "" },
-      }),
-    );
-  };
-
-  const handleModelCancel = () => {
-    window.dispatchEvent(new CustomEvent("knowflow:react-model-cancel"));
-  };
-
-  const handleModelSubmit = (event) => {
-    event.preventDefault();
-    window.dispatchEvent(
-      new CustomEvent("knowflow:react-model-submit", {
-        detail: { form: event.currentTarget },
-      }),
-    );
-  };
+export function ModelConfigForm({
+  editingModelId,
+  formValues,
+  selectedProvider,
+  selectedPresetValue,
+  submitting = false,
+  onCancel,
+  onFieldChange,
+  onPresetChange,
+  onProviderSelect,
+  onSubmit,
+}) {
+  const providerKey = providerPresets[selectedProvider] ? selectedProvider : "custom";
+  const presets = providerPresets[providerKey]?.models || [];
 
   return (
-    <form className={"panel stack-form"} id={"model-form"} onSubmit={handleModelSubmit}>
+    <form className={"panel stack-form"} id={"model-form"} onSubmit={onSubmit}>
       <div className={"panel-title"}>
-        <h2 id={"model-form-title"}>{"新增模型配置"}</h2>
-        <p>{"预设供应商可自动填充 Base URL 和常用模型；第三方接口可选择自定义后手动填写。"}</p>
+        <h2 id={"model-form-title"}>{editingModelId ? "编辑模型配置" : "新建模型配置"}</h2>
       </div>
-      <ModelProviderSelector />
+
+      <ModelProviderSelector selectedProvider={providerKey} onProviderSelect={onProviderSelect} />
+
       <div className={"form-grid"}>
         <label>
           {"配置名称"}
-          <input name={"name"} defaultValue={"DeepSeek 对话模型"} required />
+          <input name={"name"} value={formValues.name} required onChange={onFieldChange} />
         </label>
         <label>
-          {"常用模型"}
-          <select id={"model-preset-select"} onChange={handleModelPresetChange}></select>
+          {"预设模型"}
+          <select id={"model-preset-select"} value={selectedPresetValue} disabled={!presets.length} onChange={onPresetChange}>
+            <option value={""}>{"手动输入模型名称"}</option>
+            {presets.map((preset, index) => (
+              <option key={providerKey + ":" + index} value={providerKey + ":" + index}>
+                {preset.label}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
-          {"供应商标识"}
-          <input
-            name={"provider"}
-            id={"model-provider"}
-            defaultValue={"deepseek"}
-            placeholder={"如 openai、newapi、oneapi、siliconflow"}
-            required
-            onInput={handleModelProviderInput}
-          />
+          {"提供商标识"}
+          <input name={"provider"} id={"model-provider"} value={formValues.provider} placeholder={"openai, newapi, oneapi, siliconflow"} required onChange={onFieldChange} />
         </label>
         <label>
-          {"模型用途"}
-          <select name={"modelType"}>
-            <option value={"chat"}>{"对话模型"}</option>
-            <option value={"embedding"}>{"向量化模型"}</option>
+          {"模型类型"}
+          <select name={"modelType"} value={formValues.modelType} onChange={onFieldChange}>
+            <option value={"chat"}>{"聊天模型"}</option>
+            <option value={"embedding"}>{"向量模型"}</option>
             <option value={"rerank"}>{"重排模型"}</option>
           </select>
         </label>
         <label>
           {"模型名称"}
-          <input name={"modelName"} defaultValue={"deepseek-chat"} required />
+          <input name={"modelName"} value={formValues.modelName} required onChange={onFieldChange} />
         </label>
         <label className={"wide"}>
           {"接口地址"}
-          <input name={"baseUrl"} defaultValue={"https://api.deepseek.com"} required />
+          <input name={"baseUrl"} value={formValues.baseUrl} required onChange={onFieldChange} />
         </label>
         <label className={"wide"}>
-          {"接口密钥"}
-          <input name={"apiKey"} type={"password"} placeholder={"sk-xxx，仅后端加密保存"} />
+          {"API 密钥"}
+          <input name={"apiKey"} value={formValues.apiKey} type={"password"} placeholder={"sk-xxx"} onChange={onFieldChange} />
         </label>
         <label>
           {"温度"}
-          <input name={"temperature"} type={"number"} step={"0.1"} defaultValue={"0.7"} />
+          <input name={"temperature"} type={"number"} step={"0.1"} value={formValues.temperature} onChange={onFieldChange} />
         </label>
         <label>
-          {"采样概率"}
-          <input name={"topP"} type={"number"} step={"0.1"} defaultValue={"0.9"} />
+          {"Top P"}
+          <input name={"topP"} type={"number"} step={"0.1"} value={formValues.topP} onChange={onFieldChange} />
         </label>
         <label>
-          {"最大输出"}
-          <input name={"maxTokens"} type={"number"} defaultValue={"4096"} />
+          {"最大 token 数"}
+          <input name={"maxTokens"} type={"number"} value={formValues.maxTokens} onChange={onFieldChange} />
         </label>
       </div>
       <div className={"button-row"}>
-        <button type={"submit"} id={"model-submit-btn"}>
-          {"保存配置"}
+        <button type={"submit"} id={"model-submit-btn"} disabled={submitting}>
+          {submitting ? "正在保存..." : editingModelId ? "更新配置" : "保存配置"}
         </button>
-        <button className={"secondary-button"} type={"button"} id={"model-cancel-btn"} onClick={handleModelCancel}>
-          {"取消编辑"}
-        </button>
+        {editingModelId ? (
+          <button className={"secondary-button"} type={"button"} id={"model-cancel-btn"} onClick={onCancel} disabled={submitting}>
+            {"取消编辑"}
+          </button>
+        ) : null}
       </div>
     </form>
   );

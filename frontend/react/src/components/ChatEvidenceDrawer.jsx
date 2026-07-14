@@ -3,9 +3,30 @@ import { useEffect, useState } from "react";
 const toolLabels = {
   knowledge_search: "知识库检索",
   session_memory_search: "会话记忆",
-  web_search: "联网搜索",
+  web_search: "网络搜索",
   calculator: "计算器",
 };
+
+const qualityLabels = {
+  strong: "强匹配",
+  usable: "可用",
+  weak: "偏弱",
+  no_match: "无匹配",
+};
+
+function formatScore(value) {
+  const score = Number(value || 0);
+  return Number.isFinite(score) ? score.toFixed(3) : "0.000";
+}
+
+function QualityMetric({ label, value }) {
+  return (
+    <span className={"quality-metric"}>
+      <strong>{value}</strong>
+      <small>{label}</small>
+    </span>
+  );
+}
 
 export function ChatEvidenceDrawer() {
   const [references, setReferences] = useState([]);
@@ -14,49 +35,56 @@ export function ChatEvidenceDrawer() {
   const [retrievalRun, setRetrievalRun] = useState(null);
 
   useEffect(() => {
-    const handleReferencesUpdated = (event) => {
-      setReferences(Array.isArray(event.detail?.references) ? event.detail.references : []);
-    };
-    const handleToolTimelineUpdated = (event) => {
-      setToolCalls(Array.isArray(event.detail?.toolCalls) ? event.detail.toolCalls : []);
-    };
+    const handleReferencesUpdated = (event) => setReferences(Array.isArray(event.detail?.references) ? event.detail.references : []);
+    const handleToolTimelineUpdated = (event) => setToolCalls(Array.isArray(event.detail?.toolCalls) ? event.detail.toolCalls : []);
     const handleRagQualityUpdated = (event) => {
       setRagQuality(event.detail?.ragQuality || null);
       setRetrievalRun(event.detail?.retrievalRun || null);
     };
-    window.addEventListener("knowflow:legacy-references-updated", handleReferencesUpdated);
-    window.addEventListener("knowflow:legacy-tool-timeline-updated", handleToolTimelineUpdated);
-    window.addEventListener("knowflow:legacy-rag-quality-updated", handleRagQualityUpdated);
+    window.addEventListener("knowflow:react-references-updated", handleReferencesUpdated);
+    window.addEventListener("knowflow:react-tool-timeline-updated", handleToolTimelineUpdated);
+    window.addEventListener("knowflow:react-rag-quality-updated", handleRagQualityUpdated);
     return () => {
-      window.removeEventListener("knowflow:legacy-references-updated", handleReferencesUpdated);
-      window.removeEventListener("knowflow:legacy-tool-timeline-updated", handleToolTimelineUpdated);
-      window.removeEventListener("knowflow:legacy-rag-quality-updated", handleRagQualityUpdated);
+      window.removeEventListener("knowflow:react-references-updated", handleReferencesUpdated);
+      window.removeEventListener("knowflow:react-tool-timeline-updated", handleToolTimelineUpdated);
+      window.removeEventListener("knowflow:react-rag-quality-updated", handleRagQualityUpdated);
     };
   }, []);
 
-  const handleDrawerClose = () => {
-    window.dispatchEvent(new CustomEvent("knowflow:react-drawer-close"));
-  };
+  const handleDrawerClose = () => window.dispatchEvent(new CustomEvent("knowflow:react-drawer-close"));
+  const qualityLevel = ragQuality?.qualityLevel || "no_match";
+  const scoreBuckets = ragQuality?.scoreBuckets || {};
 
   return (
     <aside className={"evidence-drawer"} id={"evidence-drawer"}>
       <div className={"drawer-header"}>
         <div>
-          <span className={"eyebrow"}>{"EVIDENCE"}</span>
-          <h2>{"证据与工具"}</h2>
+          <span className={"eyebrow"}>{"引用"}</span>
+          <h2>{"引用"}</h2>
         </div>
-        <button className={"icon-button"} id={"inspector-close"} type={"button"} title={"收起证据面板"} onClick={handleDrawerClose}>
-          {"x"}
+        <button className={"icon-button"} id={"inspector-close"} type={"button"} title={"收起引用面板"} aria-label={"收起引用面板"} onClick={handleDrawerClose}>
+          <svg viewBox={"0 0 24 24"} aria-hidden={"true"} focusable={"false"}>
+            <path d={"M6 6l12 12M18 6 6 18"} fill={"none"} stroke={"currentColor"} strokeWidth={"2"} strokeLinecap={"round"} />
+          </svg>
         </button>
       </div>
       <div className={"drawer-section"}>
-        <div className={"section-label"}>{"本次回答参考"}</div>
+        <div className={"section-label"}>{"引用来源"}</div>
         {ragQuality?.enabled ? (
           <div className={"rag-quality-card"} id={"rag-quality-card"}>
-            <span className={`quality-level ${ragQuality.qualityLevel || "no_match"}`}>{ragQuality.qualityLevel || "no_match"}</span>
-            <strong>{"RAG quality"}</strong>
-            <p>{ragQuality.reason || "已记录本次检索质量。"}</p>
-            <small>{`命中 ${ragQuality.hitCount || 0} 个片段，最高分 ${ragQuality.maxScore || 0}${retrievalRun?.id ? `，运行 #${retrievalRun.id}` : ""}`}</small>
+            <span className={"quality-level " + qualityLevel}>{qualityLabels[qualityLevel] || qualityLevel}</span>
+            <strong>{"可信度"}</strong>
+            <p>{ragQuality.reason || "已评估本次引用。"}</p>
+            <div className={"quality-metrics"} id={"rag-quality-metrics"}>
+              <QualityMetric label={"命中"} value={ragQuality.hitCount || 0} />
+              <QualityMetric label={"最高分"} value={formatScore(ragQuality.maxScore)} />
+              <QualityMetric label={"平均分"} value={formatScore(ragQuality.avgScore)} />
+              <QualityMetric label={"偏弱"} value={ragQuality.belowThresholdCount || 0} />
+            </div>
+            <small>
+              {"强 " + (scoreBuckets.strong || 0) + " / 可用 " + (scoreBuckets.usable || 0) + " / 偏弱 " + (scoreBuckets.weak || 0)}
+              {retrievalRun?.id ? "，#" + retrievalRun.id : ""}
+            </small>
           </div>
         ) : null}
         <div className={"reference-list"} id={"reference-list"}>
@@ -65,10 +93,8 @@ export function ChatEvidenceDrawer() {
               const score = Math.round(Number(reference.score || 0) * 100);
               return (
                 <article className={"item"} key={reference.chunkId || reference.chunk_id || index}>
-                  <h3>{reference.filename || `片段 #${reference.chunkId || reference.chunk_id}`}</h3>
-                  <p>
-                    <span className={"badge ok"}>{`匹配 ${score}%`}</span>
-                  </p>
+                  <h3>{reference.filename || "分段 #" + (reference.chunkId || reference.chunk_id)}</h3>
+                  <p><span className={"badge ok"}>{"匹配 " + score + "%"}</span></p>
                   <p>{reference.content || reference.chunk_text || ""}</p>
                 </article>
               );
@@ -79,7 +105,7 @@ export function ChatEvidenceDrawer() {
         </div>
       </div>
       <div className={"drawer-section"}>
-        <div className={"section-label"}>{"工具调用"}</div>
+        <div className={"section-label"}>{"活动"}</div>
         <div className={"timeline"} id={"tool-timeline-mini"}>
           {toolCalls.length ? (
             toolCalls.map((call, index) => {
@@ -88,11 +114,11 @@ export function ChatEvidenceDrawer() {
               const output = call.outputText || call.output_text || call.content || "";
               const latency = call.latencyMs ?? call.latency_ms ?? 0;
               return (
-                <div className={"timeline-item"} key={`${name}-${index}`}>
+                <div className={"timeline-item"} key={name + "-" + index}>
                   <div className={"timeline-dot"}></div>
                   <div>
                     <h4>{toolLabels[name] || name}</h4>
-                    <p>{latency ? `${latency} ms` : "已记录"}</p>
+                    <p>{latency ? latency + " ms" : "已记录"}</p>
                     {input ? <pre>{typeof input === "string" ? input : JSON.stringify(input, null, 2)}</pre> : null}
                     {output ? <p>{output}</p> : null}
                   </div>
@@ -100,7 +126,7 @@ export function ChatEvidenceDrawer() {
               );
             })
           ) : (
-            <p className={"empty-state"}>{"暂无检索过程。"}</p>
+            <p className={"empty-state"}>{"暂无活动"}</p>
           )}
         </div>
       </div>

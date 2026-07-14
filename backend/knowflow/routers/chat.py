@@ -5,8 +5,11 @@ from .extensions import agent_chat
 
 router = APIRouter()
 
+CHAT_TAGS = ["Chat"]
+SESSION_TAGS = ["Sessions"]
 
-@router.post("/api/chat/attachments", tags=["对话问答"], summary="上传对话附件")
+
+@router.post("/api/chat/attachments", tags=CHAT_TAGS, summary="Upload a chat attachment")
 async def upload_chat_attachment(file: UploadFile = File(...)) -> dict[str, Any]:
     filename = sanitize_upload_filename(file.filename or f"upload-{uuid.uuid4().hex}.txt")
     data = await read_upload_file_with_limit(file)
@@ -15,10 +18,10 @@ async def upload_chat_attachment(file: UploadFile = File(...)) -> dict[str, Any]
     try:
         content = extract_text_from_upload(filename, data)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"文件解析失败：{exc}") from exc
+        raise HTTPException(status_code=400, detail=f"File parsing failed: {exc}") from exc
     content = content.strip()
     if not content:
-        raise HTTPException(status_code=400, detail="文件没有解析到可用文本")
+        raise HTTPException(status_code=400, detail="No usable text was extracted from this file.")
     clipped = content[:12000]
     mime_type = file.content_type or IMAGE_MIME_TYPES.get(suffix)
     preview_url = None
@@ -39,7 +42,7 @@ async def upload_chat_attachment(file: UploadFile = File(...)) -> dict[str, Any]
     )
 
 
-@router.post("/api/chat", tags=["对话问答"], summary="普通问答")
+@router.post("/api/chat", tags=CHAT_TAGS, summary="Create a chat answer")
 def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     use_rag = bool(payload.knowledgeBaseId) or payload.useRag
@@ -96,7 +99,7 @@ def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     )
 
 
-@router.post("/api/chat/stream", tags=["对话问答"], summary="流式问答")
+@router.post("/api/chat/stream", tags=CHAT_TAGS, summary="Stream a chat answer")
 def chat_stream(payload: ChatRequest, request: Request) -> StreamingResponse:
     result = chat(payload, request)["data"]
 
@@ -115,7 +118,7 @@ def chat_stream(payload: ChatRequest, request: Request) -> StreamingResponse:
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
-@router.get("/api/messages/{message_id}/references", tags=["对话问答"], summary="查询回答引用片段")
+@router.get("/api/messages/{message_id}/references", tags=CHAT_TAGS, summary="Read answer references")
 def read_message_references(message_id: int, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     if not fetch_one(
@@ -127,7 +130,7 @@ def read_message_references(message_id: int, request: Request) -> dict[str, Any]
         """,
         {"message_id": message_id, "user_id": user_id},
     ):
-        raise HTTPException(status_code=404, detail="消息不存在")
+        raise HTTPException(status_code=404, detail="Message not found.")
     rows = fetch_all(
         """
         SELECT mr.*, d.filename, dc.chunk_text
@@ -142,19 +145,28 @@ def read_message_references(message_id: int, request: Request) -> dict[str, Any]
     return api_success(rows)
 
 
-@router.get("/api/sessions", tags=["会话管理"], summary="查询会话列表")
+@router.get("/api/sessions", tags=SESSION_TAGS, summary="List chat sessions")
 def list_sessions(request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
-    return api_success(fetch_all("SELECT * FROM chat_session WHERE user_id=:user_id ORDER BY updated_at DESC", {"user_id": user_id}))
+    rows = fetch_all(
+        """
+        SELECT id, title, knowledge_base_id, chat_model_config_id, created_at, updated_at
+        FROM chat_session
+        WHERE user_id=:user_id
+        ORDER BY updated_at DESC
+        """,
+        {"user_id": user_id},
+    )
+    return api_success(rows)
 
 
-@router.get("/api/sessions/{session_id}/messages", tags=["会话管理"], summary="查询会话消息")
+@router.get("/api/sessions/{session_id}/messages", tags=SESSION_TAGS, summary="Read session messages")
 def read_session_messages(session_id: str, request: Request) -> dict[str, Any]:
     get_session_for_user(session_id, current_user_id(request))
     return api_success(fetch_all("SELECT * FROM chat_message WHERE session_id=:session_id ORDER BY id ASC", {"session_id": session_id}))
 
 
-@router.put("/api/sessions/{session_id}", tags=["会话管理"], summary="重命名会话")
+@router.put("/api/sessions/{session_id}", tags=SESSION_TAGS, summary="Rename a session")
 def rename_session(session_id: str, payload: SessionUpdate, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     get_session_for_user(session_id, user_id)
@@ -162,7 +174,7 @@ def rename_session(session_id: str, payload: SessionUpdate, request: Request) ->
     return api_success(True)
 
 
-@router.delete("/api/sessions/{session_id}", tags=["会话管理"], summary="删除会话")
+@router.delete("/api/sessions/{session_id}", tags=SESSION_TAGS, summary="Delete a session")
 def delete_session(session_id: str, request: Request) -> dict[str, Any]:
     get_session_for_user(session_id, current_user_id(request))
     execute("DELETE FROM agent_tool_call WHERE session_id=:session_id", {"session_id": session_id})

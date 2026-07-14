@@ -1,15 +1,15 @@
 from .runtime import *
 
 OPENAPI_TAGS = [
-    {"name": "系统调试", "description": "运行状态、健康检查和调试入口。"},
-    {"name": "认证授权", "description": "本地账号登录、会话 Cookie 和 GitHub OAuth 授权登录。"},
-    {"name": "模型配置", "description": "管理 Chat、Embedding、Rerank 等模型服务配置。"},
-    {"name": "知识库", "description": "知识库空间的创建、查询、更新和删除。"},
-    {"name": "文档入库", "description": "文档上传、解析、切片、向量化、重建索引和删除。"},
-    {"name": "RAG 调试", "description": "检索链路调试，查看召回片段、匹配度和向量后端。"},
-    {"name": "对话问答", "description": "普通对话、RAG 问答、流式输出和引用片段查询。"},
-    {"name": "会话管理", "description": "会话列表、消息记录、重命名和删除。"},
-    {"name": "扩展接口", "description": "暂缓模块的预留接口，不作为第一版核心链路。"},
+    {"name": "System", "description": "Runtime status, health checks, and debug entry points."},
+    {"name": "Authentication", "description": "Local account sessions and optional GitHub OAuth login."},
+    {"name": "Model Configuration", "description": "Manage chat, embedding, and rerank model service settings."},
+    {"name": "Knowledge Bases", "description": "Create, read, update, and delete knowledge workspaces."},
+    {"name": "Documents", "description": "Upload, parse, chunk, embed, reindex, and delete documents."},
+    {"name": "RAG Debug", "description": "Inspect retrieval results, matched terms, scores, and vector backend details."},
+    {"name": "Chat", "description": "Chat, RAG answers, streaming output, and answer references."},
+    {"name": "Sessions", "description": "Session history, messages, rename, and delete operations."},
+    {"name": "Extensions", "description": "Reserved integration endpoints outside the first core workflow."},
 ]
 
 
@@ -17,8 +17,8 @@ app = FastAPI(
     title="KnowFlow AI API",
     version="0.3.0",
     description=(
-        "KnowFlow AI 个人知识库智能工作台接口文档。"
-        "当前核心链路包括模型配置、文档入库、RAG 检索调试、对话问答和会话管理。"
+        "KnowFlow AI API for a personal knowledge workspace. "
+        "Core workflows include model configuration, document ingestion, RAG retrieval debugging, chat, and session management."
     ),
     docs_url="/docs",
     redoc_url="/redoc",
@@ -42,16 +42,41 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     first_error = exc.errors()[0] if exc.errors() else {}
     field = ".".join(str(item) for item in first_error.get("loc", []) if item not in {"body", "query", "path"})
-    reason = first_error.get("msg") or "参数不合法"
-    message = f"{field} 参数错误：{reason}" if field else f"参数错误：{reason}"
+    reason = first_error.get("msg") or "Invalid parameter"
+    message = f"{field} parameter error: {reason}" if field else f"Parameter error: {reason}"
     return JSONResponse(status_code=422, content=api_error_payload(42200, message, {"errors": exc.errors()}))
+
 
 if FRONTEND_ASSETS_DIR.exists():
     app.mount("/assets", StaticFiles(directory=FRONTEND_ASSETS_DIR), name="assets")
 
 
+@app.get("/vendor/{asset_path:path}", include_in_schema=False)
+def vendor_asset(asset_path: str) -> FileResponse:
+    if not asset_path or Path(asset_path).name != asset_path:
+        raise HTTPException(status_code=404, detail="Vendor asset not found.")
+    for vendor_dir in (FRONTEND_BUILD_DIR / "vendor", FRONTEND_DIR / "react" / "public" / "vendor"):
+        asset = vendor_dir / asset_path
+        if asset.exists() and asset.is_file():
+            return FileResponse(asset)
+    raise HTTPException(status_code=404, detail="Vendor asset not found.")
+
+
+if FRONTEND_VENDOR_DIR.exists():
+    app.mount("/vendor", StaticFiles(directory=FRONTEND_VENDOR_DIR), name="vendor")
+
+
+@app.get("/favicon.svg", include_in_schema=False)
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> FileResponse:
+    for asset in (FRONTEND_STATIC_DIR / "favicon.svg", FRONTEND_DIR / "react" / "public" / "favicon.svg"):
+        if asset.exists() and asset.is_file():
+            return FileResponse(asset, media_type="image/svg+xml")
+    raise HTTPException(status_code=404, detail="Favicon not found.")
+
+
 PUBLIC_API_PATHS = {"/api/health", "/api/runtime", "/api/auth/me", "/api/auth/login", "/api/auth/register", "/api/auth/logout"}
-PUBLIC_PREFIXES = ("/assets", "/docs", "/redoc", "/openapi.json", "/api/auth/oauth/", "/favicon.ico")
+PUBLIC_PREFIXES = ("/assets", "/vendor", "/docs", "/redoc", "/openapi.json", "/api/auth/oauth/", "/favicon.ico", "/favicon.svg")
 
 
 def is_public_path(path: str) -> bool:
@@ -65,9 +90,10 @@ async def auth_middleware(request: Request, call_next):
     if request.url.path.startswith("/api/"):
         user = get_current_user(request)
         if not user:
-            return JSONResponse(status_code=401, content={"code": 40101, "message": "请先登录", "data": None})
+            return JSONResponse(status_code=401, content={"code": 40101, "message": "Please sign in first.", "data": None})
         request.state.current_user = user
-        adopt_legacy_data_for_user(int(user["id"]))
+        if ADOPT_LEGACY_DATA:
+            adopt_legacy_data_for_user(int(user["id"]))
     return await call_next(request)
 
 
@@ -76,7 +102,7 @@ def index() -> FileResponse:
     return FileResponse(FRONTEND_STATIC_DIR / "index.html")
 
 
-@app.get("/api/health", tags=["系统调试"], summary="健康检查")
+@app.get("/api/health", tags=["System"], summary="Health check")
 def health_check() -> dict[str, Any]:
     return api_success(
         {
@@ -88,15 +114,15 @@ def health_check() -> dict[str, Any]:
     )
 
 
-@app.get("/api/runtime", tags=["系统调试"], summary="查询运行时信息")
+@app.get("/api/runtime", tags=["System"], summary="Runtime information")
 def runtime_info() -> dict[str, Any]:
     return api_success(
         {
             "database": db.dialect,
             "vectorBackend": vector_store.backend,
-            "dbUrl": DB_URL.split("@")[-1] if "@" in DB_URL else DB_URL,
         }
     )
+
 
 from .routers import routers
 

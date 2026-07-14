@@ -5,9 +5,9 @@ import { ChatMessages } from "./ChatMessages.jsx";
 import { ChatTopbar } from "./ChatTopbar.jsx";
 import { ThemeToggle } from "./ThemeToggle.jsx";
 
-export function ChatPage() {
+export function ChatPage({ active = false }) {
   return (
-    <section className={"page active"} id={"page-chat"}>
+    <section className={active ? "page active" : "page"} id={"page-chat"}>
       <div className={"chat-layout"}>
         <section className={"chat-panel"}>
           <ThemeToggle className={"chat-theme-toggle"} />

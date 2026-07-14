@@ -6,6 +6,8 @@ from sqlalchemy import create_engine, text
 
 from .db_schema import MYSQL_SCHEMA, SQLITE_SCHEMA
 
+CURRENT_SCHEMA_VERSION = 1
+
 
 class Database:
     def __init__(self, url: str):
@@ -29,6 +31,7 @@ class Database:
                 if statement:
                     conn.execute(text(statement))
             self.migrate_schema(conn)
+            self.record_schema_version(conn)
 
     def table_columns(self, conn: Any, table: str) -> set[str]:
         if self.is_mysql:
@@ -45,3 +48,18 @@ class Database:
         id_type = "BIGINT" if self.is_mysql else "INTEGER"
         for table in ["model_config", "knowledge_base", "document", "chat_session", "sync_task"]:
             self.add_column_if_missing(conn, table, "user_id", id_type)
+
+    def record_schema_version(self, conn: Any) -> None:
+        conn.execute(
+            text(
+                """
+                INSERT INTO schema_version(version, description)
+                SELECT :version, :description
+                WHERE NOT EXISTS (SELECT 1 FROM schema_version WHERE version=:version)
+                """
+            ),
+            {
+                "version": CURRENT_SCHEMA_VERSION,
+                "description": "Initial KnowFlow schema with auth, knowledge bases, documents, chat, and retrieval quality tracking.",
+            },
+        )

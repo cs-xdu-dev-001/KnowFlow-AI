@@ -1,4 +1,4 @@
-import { copyFileSync } from "node:fs";
+import { copyFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,9 +9,15 @@ const assets = [
   ["styles.css", "react/src/styles.css"],
 ];
 
-for (const [sourcePath, targetPath] of assets) {
+const vendorAssets = [
+  ["node_modules/react/umd/react.production.min.js", "react/public/vendor/react.production.min.js"],
+  ["node_modules/react-dom/umd/react-dom.production.min.js", "react/public/vendor/react-dom.production.min.js"],
+];
+
+for (const [sourcePath, targetPath] of [...assets, ...vendorAssets]) {
   const source = resolve(frontendDir, sourcePath);
   const target = resolve(frontendDir, targetPath);
+  mkdirSync(dirname(target), { recursive: true });
   copyFileSync(source, target);
   console.log(`Synced ${source} -> ${target}`);
 }

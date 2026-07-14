@@ -40,15 +40,16 @@ def main() -> None:
     gitignore = read(".gitignore")
     package_json = read("frontend/package.json")
     sync_assets = read("frontend/scripts/sync-assets.mjs")
-    controller_js = read("frontend/react/src/controller/knowflowController.js")
+    app_py = read("backend/knowflow/app.py")
+    controller_js = "\n".join([read("frontend/react/src/controller/knowflowController.js"), read("frontend/react/src/controller/chatFlow.js")])
 
     assert "姝ｅ湪缁勭粐鍥炵瓟" not in react_css
     assert "streaming:empty" not in react_css
     assert ".thinking-indicator" in react_css
     assert ".message-row.thinking-row .message-actions" in react_css
-    assert "appendMessage(\"assistant\", \"\", { thinking: true })" in controller_js
+    assert 'appendMessage("assistant", "", { thinking: true, streaming: true })' in controller_js
     assert "setMessageThinking" in controller_js
-    assert "renderMarkdown" in controller_js
+    assert "renderMarkdown" in read("frontend/react/src/components/ChatMessages.jsx")
     assert "legacyTemplate" not in react_shell
     assert "dangerouslySetInnerHTML" not in react_shell
     assert "legacyApp.js" not in react_shell
@@ -63,6 +64,8 @@ def main() -> None:
     assert '"prebuild": "npm run sync:assets"' in package_json
     assert '"predev": "npm run sync:assets"' in package_json
     assert '["styles.css", "react/src/styles.css"]' in sync_assets
+    assert 'app.mount("/vendor"' in app_py
+    assert '"/vendor"' in app_py
     assert "legacyApp.js" not in sync_assets
     assert '["app.js", "react/public/assets/legacyApp.js"]' not in sync_assets
     assert "copyFileSync(source, target)" in sync_assets
@@ -70,8 +73,12 @@ def main() -> None:
     assert not (ROOT / "frontend" / "react" / "public" / "assets" / "legacyApp.js").exists()
 
     dist = ROOT / "frontend" / "dist"
+    if not (dist / "index.html").exists():
+        dist = ROOT / "dist"
     if dist.exists():
         assert not (dist / "assets" / "legacyApp.js").exists()
+        assert (dist / "vendor" / "react.production.min.js").exists()
+        assert (dist / "vendor" / "react-dom.production.min.js").exists()
         dist_text = read_active_dist_assets(dist)
         assert "姝ｅ湪缁勭粐鍥炵瓟" not in dist_text
         assert "streaming:empty" not in dist_text

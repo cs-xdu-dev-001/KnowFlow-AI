@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import re
 
 
@@ -11,6 +11,7 @@ def main() -> None:
         + [path.read_text(encoding="utf-8") for path in sorted((ROOT / "frontend" / "react" / "src").rglob("*.jsx"))]
     )
     js = (ROOT / "frontend/react/src/controller/knowflowController.js").read_text(encoding="utf-8")
+    knowledge_documents_js = (ROOT / "frontend/react/src/components/KnowledgeDocuments.jsx").read_text(encoding="utf-8")
 
     html_ids = set(re.findall(r'id=(?:"([^"]+)"|\{"([^"]+)"\})', html))
     html_ids = {first or second for first, second in html_ids}
@@ -31,12 +32,12 @@ def main() -> None:
     required_upload_behaviors = [
         "selectedDocumentFile",
         "setSelectedDocumentFile",
-        "dragover",
-        "drop",
-        "上传失败",
-        "请先选择一个文档",
+        "onDragOver",
+        "onDrop",
+        "\u4e0a\u4f20\u5931\u8d25",
+        "\u8bf7\u5148\u9009\u62e9\u6587\u6863",
     ]
-    missing_upload_behaviors = [token for token in required_upload_behaviors if token not in js]
+    missing_upload_behaviors = [token for token in required_upload_behaviors if token not in knowledge_documents_js]
     if missing_upload_behaviors:
         raise AssertionError(f"Document upload behavior missing: {', '.join(missing_upload_behaviors)}")
 
@@ -45,10 +46,10 @@ def main() -> None:
         js,
     )
     if unsafe_event_bindings:
-        raise AssertionError("Unsafe direct DOM event bindings found; use the safe on(...) helper")
+        raise AssertionError("Unsafe direct DOM event bindings found in the React controller")
 
-    if "function on(selector, eventName, handler" not in js:
-        raise AssertionError("Safe event binding helper is missing")
+    if "function on(selector, eventName, handler" in js:
+        raise AssertionError("Legacy DOM binding helper should not return to the React controller")
 
 
 if __name__ == "__main__":

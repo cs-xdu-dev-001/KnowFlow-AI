@@ -4,8 +4,20 @@ from ..runtime import *
 
 router = APIRouter()
 
+EXTENSION_TAGS = ["Extensions"]
 
-@router.post("/api/agent/chat", tags=["扩展接口"], summary="Agent 问答预留接口")
+
+def normalize_sync_task(row: dict[str, Any] | None) -> dict[str, Any]:
+    if not row:
+        return {}
+    return {key: value for key, value in row.items() if key != "user_id"}
+
+
+def _contains_any(text_value: str, keywords: list[str]) -> bool:
+    return any(keyword in text_value for keyword in keywords)
+
+
+@router.post("/api/agent/chat", tags=EXTENSION_TAGS, summary="Reserved agent chat endpoint")
 def agent_chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     if payload.useRag and not payload.knowledgeBaseId:
@@ -27,10 +39,10 @@ def agent_chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
         started = time.time()
         if payload.knowledgeBaseId:
             chunks = retrieve_chunks(payload.knowledgeBaseId, payload.question, DEFAULT_TOP_K, user_id)
-            output = f"检索到 {len(chunks)} 个片段"
+            output = f"Retrieved {len(chunks)} chunks."
             status = "success"
         else:
-            output = "未选择知识库，知识检索未执行"
+            output = "No knowledge base was selected, so knowledge retrieval did not run."
             status = "failed"
         calls.append(
             log_tool_call(
@@ -47,15 +59,17 @@ def agent_chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     started = time.time()
     history = get_recent_history(session_id)
     if run_tool("session_memory_search", True):
-        calls.append(log_tool_call(session_id, None, "session_memory_search", {"sessionId": session_id, "limit": 8}, f"读取 {len(history)} 条历史消息", started_at=started))
+        calls.append(log_tool_call(session_id, None, "session_memory_search", {"sessionId": session_id, "limit": 8}, f"Read {len(history)} history messages.", started_at=started))
 
-    if run_tool("document_summary", "总结" in payload.question or "亮点" in payload.question or "概括" in payload.question):
+    summary_keywords = ["summary", "summarize", "highlights", "overview", "\u603b\u7ed3", "\u4eae\u70b9", "\u6982\u62ec"]
+    if run_tool("document_summary", _contains_any(payload.question.lower(), summary_keywords)):
         started = time.time()
-        attachment_summary = "；".join((item.content or "")[:90] for item in payload.attachments[:3])
-        summary = "；".join((item["chunk_text"] or "")[:90] for item in chunks[:3]) or attachment_summary or "没有可摘要的内容"
+        attachment_summary = "; ".join((item.content or "")[:90] for item in payload.attachments[:3])
+        summary = "; ".join((item["chunk_text"] or "")[:90] for item in chunks[:3]) or attachment_summary or "No content is available to summarize."
         calls.append(log_tool_call(session_id, None, "document_summary", {"chunkIds": [item["chunk_id"] for item in chunks[:3]], "summaryType": "brief"}, summary, started_at=started))
 
-    if run_tool("markdown_draft_generate", "markdown" in payload.question.lower() or "草稿" in payload.question or "博客" in payload.question):
+    draft_keywords = ["markdown", "draft", "blog", "\u8349\u7a3f", "\u535a\u5ba2"]
+    if run_tool("markdown_draft_generate", _contains_any(payload.question.lower(), draft_keywords)):
         started = time.time()
         draft_source = "\n\n".join((item["chunk_text"] or "")[:200] for item in chunks[:3]) or "\n\n".join((item.content or "")[:200] for item in payload.attachments[:3])
         draft = "# " + payload.question[:40] + "\n\n" + draft_source
@@ -69,7 +83,7 @@ def agent_chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     return api_success({"sessionId": session_id, "messageId": message_id, "answer": answer, "references": refs, "toolCalls": calls})
 
 
-@router.post("/api/agent/chat/stream", tags=["扩展接口"], summary="Agent 流式问答预留接口")
+@router.post("/api/agent/chat/stream", tags=EXTENSION_TAGS, summary="Reserved streaming agent chat endpoint")
 def agent_chat_stream(payload: ChatRequest, request: Request) -> StreamingResponse:
     result = agent_chat(payload, request)["data"]
 
@@ -86,13 +100,13 @@ def agent_chat_stream(payload: ChatRequest, request: Request) -> StreamingRespon
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
-@router.get("/api/sessions/{session_id}/tool-calls", tags=["扩展接口"], summary="查询会话工具调用记录")
+@router.get("/api/sessions/{session_id}/tool-calls", tags=EXTENSION_TAGS, summary="Read session tool calls")
 def read_session_tool_calls(session_id: str, request: Request) -> dict[str, Any]:
     get_session_for_user(session_id, current_user_id(request))
     return api_success(fetch_all("SELECT * FROM agent_tool_call WHERE session_id=:session_id ORDER BY id DESC", {"session_id": session_id}))
 
 
-@router.get("/api/messages/{message_id}/tool-calls", tags=["扩展接口"], summary="查询回答工具调用记录")
+@router.get("/api/messages/{message_id}/tool-calls", tags=EXTENSION_TAGS, summary="Read answer tool calls")
 def read_message_tool_calls(message_id: int, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     if not fetch_one(
@@ -104,11 +118,11 @@ def read_message_tool_calls(message_id: int, request: Request) -> dict[str, Any]
         """,
         {"message_id": message_id, "user_id": user_id},
     ):
-        raise HTTPException(status_code=404, detail="消息不存在")
+        raise HTTPException(status_code=404, detail="Message not found.")
     return api_success(fetch_all("SELECT * FROM agent_tool_call WHERE message_id=:message_id ORDER BY id DESC", {"message_id": message_id}))
 
 
-@router.post("/api/sync/tasks", tags=["扩展接口"], summary="创建同步任务记录")
+@router.post("/api/sync/tasks", tags=EXTENSION_TAGS, summary="Create a sync task record")
 def create_sync_task(payload: SyncTaskIn, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     if payload.knowledgeBaseId is not None:
@@ -124,30 +138,32 @@ def create_sync_task(payload: SyncTaskIn, request: Request) -> dict[str, Any]:
             "source_url": payload.sourceUrl,
             "target_type": payload.targetType,
             "knowledge_base_id": payload.knowledgeBaseId,
-            "result_message": "已记录同步任务；后续接入 Notion/GitHub 授权后可执行。",
+            "result_message": "Sync task recorded. Real execution is available after Notion or GitHub authorization is connected.",
             "created_at": now_str(),
             "updated_at": now_str(),
         },
     )
-    return api_success(fetch_one("SELECT * FROM sync_task WHERE id=:id AND user_id=:user_id", {"id": task_id, "user_id": user_id}))
+    row = fetch_one("SELECT * FROM sync_task WHERE id=:id AND user_id=:user_id", {"id": task_id, "user_id": user_id})
+    return api_success(normalize_sync_task(row))
 
 
-@router.get("/api/sync/tasks", tags=["扩展接口"], summary="查询同步任务列表")
+@router.get("/api/sync/tasks", tags=EXTENSION_TAGS, summary="List sync tasks")
 def list_sync_tasks(request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
-    return api_success(fetch_all("SELECT * FROM sync_task WHERE user_id=:user_id ORDER BY id DESC", {"user_id": user_id}))
+    rows = fetch_all("SELECT * FROM sync_task WHERE user_id=:user_id ORDER BY id DESC", {"user_id": user_id})
+    return api_success([normalize_sync_task(row) for row in rows])
 
 
-@router.get("/api/sync/tasks/{task_id}", tags=["扩展接口"], summary="查询同步任务详情")
+@router.get("/api/sync/tasks/{task_id}", tags=EXTENSION_TAGS, summary="Read sync task details")
 def read_sync_task(task_id: int, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     row = fetch_one("SELECT * FROM sync_task WHERE id=:id AND user_id=:user_id", {"id": task_id, "user_id": user_id})
     if not row:
-        raise HTTPException(status_code=404, detail="同步任务不存在")
-    return api_success(row)
+        raise HTTPException(status_code=404, detail="Sync task not found.")
+    return api_success(normalize_sync_task(row))
 
 
-@router.post("/api/publish/github", tags=["扩展接口"], summary="GitHub 发布预留接口")
+@router.post("/api/publish/github", tags=EXTENSION_TAGS, summary="Reserved GitHub publish endpoint")
 def publish_github(payload: GithubPublishIn) -> dict[str, Any]:
     return api_success(
         {
@@ -155,6 +171,6 @@ def publish_github(payload: GithubPublishIn) -> dict[str, Any]:
             "branch": payload.branch,
             "path": payload.path,
             "status": "recorded",
-            "message": "已接收发布请求。接入 GitHub Token 后可执行真实发布。",
+            "message": "Publish request recorded. Real publishing is available after a GitHub token is connected.",
         }
     )

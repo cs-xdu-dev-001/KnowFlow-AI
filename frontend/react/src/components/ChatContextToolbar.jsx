@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 
 const valueOf = (value) => (value === undefined || value === null ? "" : String(value));
-
-const modelLabel = (model) => `${model.name || "未命名模型"} / ${model.modelName || "unknown"}`;
+const modelLabel = (model) => (model.name || "未命名模型") + " / " + (model.modelName || "未知");
 
 function pickModelValue(models, currentValue) {
   const wanted = valueOf(currentValue);
@@ -24,11 +23,9 @@ export function ChatContextToolbar() {
   const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState("");
 
   useEffect(() => {
-    const handleActiveSessionUpdated = (event) => {
-      setActiveSessionId(event.detail?.sessionId || "");
-    };
-    window.addEventListener("knowflow:legacy-active-session-updated", handleActiveSessionUpdated);
-    return () => window.removeEventListener("knowflow:legacy-active-session-updated", handleActiveSessionUpdated);
+    const handleActiveSessionUpdated = (event) => setActiveSessionId(event.detail?.sessionId || "");
+    window.addEventListener("knowflow:react-active-session-updated", handleActiveSessionUpdated);
+    return () => window.removeEventListener("knowflow:react-active-session-updated", handleActiveSessionUpdated);
   }, []);
 
   useEffect(() => {
@@ -37,14 +34,12 @@ export function ChatContextToolbar() {
       setChatModels(models);
       setSelectedModelId((current) => pickModelValue(models, event.detail?.selectedModelId ?? current));
     };
-    const handleModelSelectionUpdated = (event) => {
-      setSelectedModelId(valueOf(event.detail?.selectedModelId));
-    };
-    window.addEventListener("knowflow:legacy-model-options-updated", handleModelOptionsUpdated);
-    window.addEventListener("knowflow:legacy-model-selection-updated", handleModelSelectionUpdated);
+    const handleModelSelectionUpdated = (event) => setSelectedModelId(valueOf(event.detail?.selectedModelId));
+    window.addEventListener("knowflow:react-model-options-updated", handleModelOptionsUpdated);
+    window.addEventListener("knowflow:react-model-selection-updated", handleModelSelectionUpdated);
     return () => {
-      window.removeEventListener("knowflow:legacy-model-options-updated", handleModelOptionsUpdated);
-      window.removeEventListener("knowflow:legacy-model-selection-updated", handleModelSelectionUpdated);
+      window.removeEventListener("knowflow:react-model-options-updated", handleModelOptionsUpdated);
+      window.removeEventListener("knowflow:react-model-selection-updated", handleModelSelectionUpdated);
     };
   }, []);
 
@@ -52,19 +47,17 @@ export function ChatContextToolbar() {
     const handleKnowledgeOptionsUpdated = (event) => {
       const nextKnowledgeBases = Array.isArray(event.detail?.knowledgeBases) ? event.detail.knowledgeBases : [];
       setKnowledgeBases(nextKnowledgeBases);
-      setSelectedKnowledgeBaseId((current) =>
-        pickKnowledgeValue(nextKnowledgeBases, event.detail?.selectedChatKnowledgeBaseId ?? current),
-      );
+      setSelectedKnowledgeBaseId((current) => pickKnowledgeValue(nextKnowledgeBases, event.detail?.selectedChatKnowledgeBaseId ?? current));
     };
     const handleKnowledgeSelectionUpdated = (event) => {
       if (!Object.prototype.hasOwnProperty.call(event.detail || {}, "selectedChatKnowledgeBaseId")) return;
       setSelectedKnowledgeBaseId(valueOf(event.detail?.selectedChatKnowledgeBaseId));
     };
-    window.addEventListener("knowflow:legacy-knowledge-options-updated", handleKnowledgeOptionsUpdated);
-    window.addEventListener("knowflow:legacy-knowledge-selection-updated", handleKnowledgeSelectionUpdated);
+    window.addEventListener("knowflow:react-knowledge-options-updated", handleKnowledgeOptionsUpdated);
+    window.addEventListener("knowflow:react-knowledge-selection-updated", handleKnowledgeSelectionUpdated);
     return () => {
-      window.removeEventListener("knowflow:legacy-knowledge-options-updated", handleKnowledgeOptionsUpdated);
-      window.removeEventListener("knowflow:legacy-knowledge-selection-updated", handleKnowledgeSelectionUpdated);
+      window.removeEventListener("knowflow:react-knowledge-options-updated", handleKnowledgeOptionsUpdated);
+      window.removeEventListener("knowflow:react-knowledge-selection-updated", handleKnowledgeSelectionUpdated);
     };
   }, []);
 
@@ -73,7 +66,6 @@ export function ChatContextToolbar() {
     setSelectedModelId(value);
     window.dispatchEvent(new CustomEvent("knowflow:react-chat-model-change", { detail: { value } }));
   };
-
   const handleChatKnowledgeBaseChange = (event) => {
     const value = event.target.value || "";
     setSelectedKnowledgeBaseId(value);
@@ -82,35 +74,9 @@ export function ChatContextToolbar() {
 
   return (
     <div className={"context-toolbar"}>
-      <label>
-        <span>{"对话模型"}</span>
-        <select id={"chat-model-select"} value={selectedModelId} onChange={handleChatModelChange}>
-          {chatModels.length ? (
-            chatModels.map((model) => (
-              <option value={valueOf(model.id)} key={model.id}>
-                {modelLabel(model)}
-              </option>
-            ))
-          ) : (
-            <option value={""}>{"本地备用模型"}</option>
-          )}
-        </select>
-      </label>
-      <label>
-        <span>{"知识库上下文"}</span>
-        <select id={"chat-kb-select"} value={selectedKnowledgeBaseId} onChange={handleChatKnowledgeBaseChange}>
-          <option value={""}>{"不使用知识库"}</option>
-          {knowledgeBases.map((kb) => (
-            <option value={valueOf(kb.id)} key={kb.id}>
-              {kb.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        <span>{"当前会话"}</span>
-        <input id={"active-session"} readOnly placeholder={"自动生成"} value={activeSessionId} />
-      </label>
+      <label><span>{"聊天模型"}</span><select id={"chat-model-select"} value={selectedModelId} onChange={handleChatModelChange}>{chatModels.length ? chatModels.map((model) => <option value={valueOf(model.id)} key={model.id}>{modelLabel(model)}</option>) : <option value={""}>{"本地备用模型"}</option>}</select></label>
+      <label><span>{"知识库"}</span><select id={"chat-kb-select"} value={selectedKnowledgeBaseId} onChange={handleChatKnowledgeBaseChange}><option value={""}>{"不使用知识库"}</option>{knowledgeBases.map((kb) => <option value={valueOf(kb.id)} key={kb.id}>{kb.name}</option>)}</select></label>
+      <label><span>{"会话"}</span><input id={"active-session"} readOnly placeholder={"新会话"} value={activeSessionId} /></label>
     </div>
   );
 }

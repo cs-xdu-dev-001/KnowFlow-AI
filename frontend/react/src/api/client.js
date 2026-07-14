@@ -1,3 +1,5 @@
+import { BACKEND_UNAVAILABLE_MESSAGE, normalizeErrorMessage } from "./errors.js";
+
 export class ApiError extends Error {
   constructor(message, { status = 0, code = null, data = null } = {}) {
     super(message);
@@ -8,17 +10,18 @@ export class ApiError extends Error {
   }
 }
 
-const BACKEND_UNAVAILABLE_MESSAGE = "后端服务未启动或无法连接，请先运行后端服务。";
+export function notifyAuthRequired(detail = {}) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("knowflow:react-auth-required", { detail }));
+}
 
 async function parseResponse(response) {
   const text = await response.text();
-  if (!text) {
-    return null;
-  }
+  if (!text) return null;
   try {
     return JSON.parse(text);
   } catch (error) {
-    throw new ApiError(text, { status: response.status });
+    throw new ApiError(normalizeErrorMessage(text, response.statusText || "请求失败"), { status: response.status });
   }
 }
 
@@ -42,7 +45,7 @@ export async function apiRequest(path, options = {}) {
     });
   } catch (error) {
     if (path.startsWith("/api")) {
-      throw new ApiError(BACKEND_UNAVAILABLE_MESSAGE, { status: 0 });
+      throw new ApiError(BACKEND_UNAVAILABLE_MESSAGE, { status: 0, code: "BACKEND_UNAVAILABLE", data: { cause: error?.message || "fetch failed" } });
     }
     throw error;
   }
@@ -51,26 +54,25 @@ export async function apiRequest(path, options = {}) {
   try {
     payload = await parseResponse(response);
   } catch (error) {
-    if (
-      error instanceof ApiError &&
-      path.startsWith("/api") &&
-      response.status >= 500 &&
-      /internal server error/i.test(error.message)
-    ) {
-      throw new ApiError(BACKEND_UNAVAILABLE_MESSAGE, { status: response.status });
+    if (error instanceof ApiError && path.startsWith("/api") && response.status >= 500) {
+      throw new ApiError(normalizeErrorMessage(error, BACKEND_UNAVAILABLE_MESSAGE), { status: response.status, data: error.data });
     }
     throw error;
   }
 
   if (!response.ok) {
-    throw new ApiError(payload?.message || response.statusText || "Request failed", {
+    const message = normalizeErrorMessage(payload?.message || response.statusText, "请求失败");
+    if (response.status === 401) {
+      notifyAuthRequired({ path, status: response.status, message });
+    }
+    throw new ApiError(message, {
       status: response.status,
       code: payload?.code ?? null,
       data: payload?.data ?? payload,
     });
   }
   if (payload && payload.code !== 0) {
-    throw new ApiError(payload.message || "Request failed", {
+    throw new ApiError(normalizeErrorMessage(payload.message, "请求失败"), {
       status: response.status,
       code: payload.code,
       data: payload.data,
@@ -85,4 +87,50 @@ export const authApi = {
   register: ({ username, email, password, displayName }) =>
     apiRequest("/api/auth/register", { method: "POST", body: { username, email, password, displayName } }),
   logout: () => apiRequest("/api/auth/logout", { method: "POST" }),
+};
+
+export const modelConfigApi = {
+  list: () => apiRequest("/api/model-configs"),
+  get: (id) => apiRequest(`/api/model-configs/${id}`),
+  create: (payload) => apiRequest("/api/model-configs", { method: "POST", body: payload }),
+  update: (id, payload) => apiRequest(`/api/model-configs/${id}`, { method: "PUT", body: payload }),
+  test: (id) => apiRequest(`/api/model-configs/${id}/test`, { method: "POST" }),
+  setDefault: (id) => apiRequest(`/api/model-configs/${id}/default`, { method: "POST" }),
+  delete: (id) => apiRequest(`/api/model-configs/${id}`, { method: "DELETE" }),
+};
+
+export const runtimeApi = {
+  get: () => apiRequest("/api/runtime"),
+};
+
+export const sessionApi = {
+  list: () => apiRequest("/api/sessions"),
+  messages: (id) => apiRequest(`/api/sessions/${id}/messages`),
+  update: (id, payload) => apiRequest(`/api/sessions/${id}`, { method: "PUT", body: payload }),
+  delete: (id) => apiRequest(`/api/sessions/${id}`, { method: "DELETE" }),
+};
+
+export const knowledgeApi = {
+  list: () => apiRequest("/api/knowledge-bases"),
+  get: (id) => apiRequest(`/api/knowledge-bases/${id}`),
+  create: (payload) => apiRequest("/api/knowledge-bases", { method: "POST", body: payload }),
+  update: (id, payload) => apiRequest(`/api/knowledge-bases/${id}`, { method: "PUT", body: payload }),
+  delete: (id) => apiRequest(`/api/knowledge-bases/${id}`, { method: "DELETE" }),
+};
+
+export const documentApi = {
+  list: (knowledgeBaseId) => apiRequest(`/api/knowledge-bases/${knowledgeBaseId}/documents`),
+  upload: (knowledgeBaseId, file) => {
+    const data = new FormData();
+    data.append("knowledgeBaseId", knowledgeBaseId);
+    data.append("file", file);
+    return apiRequest(`/api/knowledge-bases/${knowledgeBaseId}/documents`, { method: "POST", body: data });
+  },
+  chunks: (id) => apiRequest(`/api/documents/${id}/chunks`),
+  reindex: (id) => apiRequest(`/api/documents/${id}/reindex`, { method: "POST" }),
+  delete: (id) => apiRequest(`/api/documents/${id}`, { method: "DELETE" }),
+};
+
+export const retrievalApi = {
+  debug: (payload) => apiRequest("/api/retrieval/debug", { method: "POST", body: payload }),
 };

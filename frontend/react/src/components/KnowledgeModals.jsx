@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { notifyError, notifyToast } from "./errorFeedback.js";
+import { useEffect, useRef, useState } from "react";
+import { knowledgeApi } from "../api/client.js";
 
 const valueOf = (value) => (value === undefined || value === null ? "" : String(value));
 
-const modelLabel = (model) => `${model.name || "未命名模型"} / ${model.modelName || "unknown"}`;
+const modelLabel = (model) => `${model.name || "未命名模型"} / ${model.modelName || "未知"}`;
+
 
 function pickEmbeddingValue(models, currentValue) {
   const wanted = valueOf(currentValue);
@@ -10,28 +13,11 @@ function pickEmbeddingValue(models, currentValue) {
   return models.length ? valueOf(models[0].id) : "0";
 }
 
-export function KnowledgeModals() {
-  const [chunks, setChunks] = useState([]);
+export function KnowledgeModals({ knowledgeModalOpen = false, setKnowledgeModalOpen = () => {} }) {
   const [embeddingModels, setEmbeddingModels] = useState([]);
   const [selectedEmbeddingModelId, setSelectedEmbeddingModelId] = useState("0");
-  const [chunksLoading, setChunksLoading] = useState(false);
-
-  useEffect(() => {
-    const handleChunksLoading = () => {
-      setChunks([]);
-      setChunksLoading(true);
-    };
-    const handleChunksUpdated = (event) => {
-      setChunks(Array.isArray(event.detail?.chunks) ? event.detail.chunks : []);
-      setChunksLoading(false);
-    };
-    window.addEventListener("knowflow:legacy-chunks-loading", handleChunksLoading);
-    window.addEventListener("knowflow:legacy-chunks-updated", handleChunksUpdated);
-    return () => {
-      window.removeEventListener("knowflow:legacy-chunks-loading", handleChunksLoading);
-      window.removeEventListener("knowflow:legacy-chunks-updated", handleChunksUpdated);
-    };
-  }, []);
+  const [creatingKnowledgeBase, setCreatingKnowledgeBase] = useState(false);
+  const nameInputRef = useRef(null);
 
   useEffect(() => {
     const handleModelOptionsUpdated = (event) => {
@@ -41,60 +27,79 @@ export function KnowledgeModals() {
       setEmbeddingModels(usableModels);
       setSelectedEmbeddingModelId((current) => pickEmbeddingValue(usableModels, event.detail?.selectedEmbeddingModelId ?? current));
     };
-    window.addEventListener("knowflow:legacy-model-options-updated", handleModelOptionsUpdated);
-    return () => window.removeEventListener("knowflow:legacy-model-options-updated", handleModelOptionsUpdated);
+    window.addEventListener("knowflow:react-model-options-updated", handleModelOptionsUpdated);
+    return () => window.removeEventListener("knowflow:react-model-options-updated", handleModelOptionsUpdated);
   }, []);
+
+  useEffect(() => {
+    if (!knowledgeModalOpen) return undefined;
+    const timer = window.setTimeout(() => nameInputRef.current?.focus(), 30);
+    return () => window.clearTimeout(timer);
+  }, [knowledgeModalOpen]);
 
   const handleKnowledgeModalBackdrop = (event) => {
     if (event.target === event.currentTarget) {
-      window.dispatchEvent(new CustomEvent("knowflow:react-close-kb-modal"));
+      setKnowledgeModalOpen(false);
     }
   };
 
   const handleCloseKnowledgeModal = () => {
-    window.dispatchEvent(new CustomEvent("knowflow:react-close-kb-modal"));
+    setKnowledgeModalOpen(false);
   };
 
-  const handleChunkModalBackdrop = (event) => {
-    if (event.target === event.currentTarget) {
-      window.dispatchEvent(new CustomEvent("knowflow:react-close-chunk-modal"));
-    }
-  };
+  useEffect(() => {
+    if (!knowledgeModalOpen) return undefined;
+    const handleModalKeyDown = (event) => {
+      if (event.key === "Escape") handleCloseKnowledgeModal();
+    };
+    window.addEventListener("keydown", handleModalKeyDown);
+    return () => window.removeEventListener("keydown", handleModalKeyDown);
+  }, [knowledgeModalOpen]);
 
-  const handleCloseChunkModal = () => {
-    window.dispatchEvent(new CustomEvent("knowflow:react-close-chunk-modal"));
-  };
-
-  const handleKnowledgeBaseSubmit = (event) => {
+  const handleKnowledgeBaseSubmit = async (event) => {
     event.preventDefault();
-    window.dispatchEvent(
-      new CustomEvent("knowflow:react-kb-submit", {
-        detail: { form: event.currentTarget },
-      }),
-    );
+    const form = event.currentTarget;
+    const data = Object.fromEntries(new FormData(form).entries());
+    if (data.embeddingModelConfigId) data.embeddingModelConfigId = Number(data.embeddingModelConfigId);
+
+    setCreatingKnowledgeBase(true);
+    try {
+      await knowledgeApi.create(data);
+      form.reset();
+      setSelectedEmbeddingModelId((current) => pickEmbeddingValue(embeddingModels, current));
+      notifyToast("知识库已创建");
+      handleCloseKnowledgeModal();
+      window.dispatchEvent(new CustomEvent("knowflow:react-knowledge-bases-refresh-request"));
+    } catch (error) {
+      notifyError(error, "创建知识库失败");
+    } finally {
+      setCreatingKnowledgeBase(false);
+    }
   };
 
   return (
     <>
-      <div className={"modal-backdrop hidden"} id={"kb-modal"} onClick={handleKnowledgeModalBackdrop}>
+      <div className={knowledgeModalOpen ? "modal-backdrop" : "modal-backdrop hidden"} id={"kb-modal"} onClick={handleKnowledgeModalBackdrop}>
         <div className={"modal-panel kb-modal-panel"} role={"dialog"} aria-modal={"true"} aria-labelledby={"kb-modal-title"}>
           <div className={"modal-head"}>
             <div>
-              <span className={"eyebrow"}>{"NEW SPACE"}</span>
+              <span className={"eyebrow"}>{"新建空间"}</span>
               <h2 id={"kb-modal-title"}>{"新建知识库"}</h2>
             </div>
-            <button type={"button"} className={"icon-button"} id={"close-kb-modal-btn"} aria-label={"关闭"} onClick={handleCloseKnowledgeModal}>
-              {"×"}
+            <button type={"button"} className={"icon-button"} id={"close-kb-modal-btn"} aria-label={"关闭知识库窗口"} onClick={handleCloseKnowledgeModal}>
+              <svg viewBox={"0 0 24 24"} aria-hidden={"true"} focusable={"false"}>
+                <path d={"M6 6l12 12M18 6 6 18"} fill={"none"} stroke={"currentColor"} strokeWidth={"2"} strokeLinecap={"round"} />
+              </svg>
             </button>
           </div>
           <form id={"kb-form"} className={"stack-form modal-form"} onSubmit={handleKnowledgeBaseSubmit}>
             <label>
               {"名称"}
-              <input name={"name"} placeholder={"例如：论文阅读记录"} required />
+              <input name={"name"} ref={nameInputRef} placeholder={"例如：研究笔记"} required />
             </label>
             <label>
               {"描述"}
-              <textarea name={"description"} placeholder={"可选：说明这个知识库会放哪些资料"} />
+              <textarea name={"description"} placeholder={"可选"} />
             </label>
             <label>
               {"向量模型"}
@@ -106,7 +111,7 @@ export function KnowledgeModals() {
                     </option>
                   ))
                 ) : (
-                  <option value={"0"}>{"本地 Hash 向量"}</option>
+                  <option value={"0"}>{"本地哈希向量"}</option>
                 )}
               </select>
             </label>
@@ -114,36 +119,11 @@ export function KnowledgeModals() {
               <button type={"button"} id={"cancel-kb-modal-btn"} onClick={handleCloseKnowledgeModal}>
                 {"取消"}
               </button>
-              <button type={"submit"} className={"primary"}>
-                {"创建知识库"}
+              <button type={"submit"} className={"primary"} disabled={creatingKnowledgeBase}>
+                {creatingKnowledgeBase ? "正在创建..." : "创建知识库"}
               </button>
             </div>
           </form>
-        </div>
-      </div>
-      <div className={"modal-backdrop hidden"} id={"chunk-modal"} onClick={handleChunkModalBackdrop}>
-        <div className={"modal-panel chunk-modal-panel"} role={"dialog"} aria-modal={"true"} aria-labelledby={"chunk-modal-title"}>
-          <div className={"modal-head"}>
-            <div>
-              <span className={"eyebrow"}>{"CHUNKS"}</span>
-              <h2 id={"chunk-modal-title"}>{"文档切片"}</h2>
-            </div>
-            <button type={"button"} className={"icon-button"} id={"close-chunk-modal-btn"} aria-label={"关闭"} onClick={handleCloseChunkModal}>
-              {"×"}
-            </button>
-          </div>
-          <div className={"chunk-list"} id={"chunk-list"}>
-            {chunksLoading ? <p className={"empty-state"}>{"正在加载切片..."}</p> : null}
-            {!chunksLoading && !chunks.length ? <p className={"empty-state"}>{"暂无切片。"}</p> : null}
-            {!chunksLoading
-              ? chunks.map((chunk, index) => (
-                  <div className={"chunk"} key={`${chunk.id || chunk.chunk_index || index}`}>
-                    <strong>{`#${chunk.chunk_index ?? index + 1}`}</strong>
-                    {` ${chunk.chunk_text || chunk.content || ""}`}
-                  </div>
-                ))
-              : null}
-          </div>
         </div>
       </div>
     </>

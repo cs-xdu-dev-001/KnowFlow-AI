@@ -1,4 +1,9 @@
 SQLITE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS schema_version (
+  version INTEGER PRIMARY KEY,
+  description TEXT,
+  applied_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS model_config (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER,
@@ -176,6 +181,11 @@ CREATE INDEX IF NOT EXISTS idx_oauth_account_user ON oauth_account(user_id)
 """
 
 MYSQL_SCHEMA = """
+CREATE TABLE IF NOT EXISTS schema_version (
+  version INT PRIMARY KEY,
+  description VARCHAR(500),
+  applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE IF NOT EXISTS model_config (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   user_id BIGINT,

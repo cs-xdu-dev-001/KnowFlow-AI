@@ -4,8 +4,10 @@ from ..runtime import *
 
 router = APIRouter()
 
+MODEL_TAGS = ["Model Configuration"]
 
-@router.post("/api/model-configs", tags=["模型配置"], summary="新增模型配置")
+
+@router.post("/api/model-configs", tags=MODEL_TAGS, summary="Create a model configuration")
 def create_model_config(payload: ModelConfigIn, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     model_id = execute(
@@ -38,7 +40,7 @@ def create_model_config(payload: ModelConfigIn, request: Request) -> dict[str, A
     return api_success(normalize_model_config(row))
 
 
-@router.get("/api/model-configs", tags=["模型配置"], summary="查询模型配置列表")
+@router.get("/api/model-configs", tags=MODEL_TAGS, summary="List model configurations")
 def list_model_configs(request: Request, modelType: str | None = None) -> dict[str, Any]:
     user_id = current_user_id(request)
     if modelType:
@@ -48,20 +50,20 @@ def list_model_configs(request: Request, modelType: str | None = None) -> dict[s
     return api_success([normalize_model_config(row) for row in rows])
 
 
-@router.get("/api/model-configs/{config_id}", tags=["模型配置"], summary="查询模型配置详情")
+@router.get("/api/model-configs/{config_id}", tags=MODEL_TAGS, summary="Read a model configuration")
 def read_model_config(config_id: int, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     row = fetch_one("SELECT * FROM model_config WHERE id=:id AND user_id=:user_id", {"id": config_id, "user_id": user_id})
     if not row:
-        raise HTTPException(status_code=404, detail="模型配置不存在")
+        raise HTTPException(status_code=404, detail="Model configuration not found.")
     return api_success(normalize_model_config(row))
 
 
-@router.put("/api/model-configs/{config_id}", tags=["模型配置"], summary="更新模型配置")
+@router.put("/api/model-configs/{config_id}", tags=MODEL_TAGS, summary="Update a model configuration")
 def update_model_config(config_id: int, payload: ModelConfigUpdate, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     if not fetch_one("SELECT id FROM model_config WHERE id=:id AND user_id=:user_id", {"id": config_id, "user_id": user_id}):
-        raise HTTPException(status_code=404, detail="模型配置不存在")
+        raise HTTPException(status_code=404, detail="Model configuration not found.")
     data = payload.model_dump(exclude_unset=True)
     mapping = {
         "name": "name",
@@ -86,30 +88,30 @@ def update_model_config(config_id: int, payload: ModelConfigUpdate, request: Req
     return read_model_config(config_id, request)
 
 
-@router.delete("/api/model-configs/{config_id}", tags=["模型配置"], summary="删除模型配置")
+@router.delete("/api/model-configs/{config_id}", tags=MODEL_TAGS, summary="Delete a model configuration")
 def delete_model_config(config_id: int, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     execute("DELETE FROM model_config WHERE id=:id AND user_id=:user_id", {"id": config_id, "user_id": user_id})
     return api_success(True)
 
 
-@router.post("/api/model-configs/{config_id}/test", tags=["模型配置"], summary="测试模型连接")
+@router.post("/api/model-configs/{config_id}/test", tags=MODEL_TAGS, summary="Test a model connection")
 def test_model_config(config_id: int, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     config = fetch_one("SELECT * FROM model_config WHERE id=:id AND user_id=:user_id", {"id": config_id, "user_id": user_id})
     if not config:
-        raise HTTPException(status_code=404, detail="模型配置不存在")
+        raise HTTPException(status_code=404, detail="Model configuration not found.")
     status, message = gateway.test(config)
     execute("UPDATE model_config SET status=:status, updated_at=:updated_at WHERE id=:id AND user_id=:user_id", {"status": status, "updated_at": now_str(), "id": config_id, "user_id": user_id})
     return api_success({"status": status, "message": message})
 
 
-@router.post("/api/model-configs/{config_id}/default", tags=["模型配置"], summary="设置默认模型")
+@router.post("/api/model-configs/{config_id}/default", tags=MODEL_TAGS, summary="Set the default model")
 def set_default_model(config_id: int, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     config = fetch_one("SELECT * FROM model_config WHERE id=:id AND user_id=:user_id", {"id": config_id, "user_id": user_id})
     if not config:
-        raise HTTPException(status_code=404, detail="模型配置不存在")
+        raise HTTPException(status_code=404, detail="Model configuration not found.")
     execute("UPDATE model_config SET is_default=0 WHERE model_type=:model_type AND user_id=:user_id", {"model_type": config["model_type"], "user_id": user_id})
     execute("UPDATE model_config SET is_default=1, updated_at=:updated_at WHERE id=:id AND user_id=:user_id", {"updated_at": now_str(), "id": config_id, "user_id": user_id})
     return api_success(True)

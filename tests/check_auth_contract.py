@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,7 +31,12 @@ def require_any(text: str, needles: tuple[str, ...], label: str) -> None:
 def main() -> None:
     backend = read_backend()
     frontend = read_frontend()
-    app_js = read("frontend/react/src/controller/knowflowController.js")
+    app_js = "\n".join([
+        read("frontend/react/src/controller/knowflowController.js"),
+        read("frontend/react/src/controller/request.js"),
+        read("frontend/react/src/controller/bridgeBindings.js"),
+        read("frontend/react/src/api/client.js"),
+    ])
     styles = read("frontend/styles.css")
     readme = read("README.md")
     env_example = read("backend/.env.example")
@@ -47,8 +52,8 @@ def main() -> None:
         ("hash_password", "password hashing"),
         ("verify_password", "password verification"),
         ("raise_api_error", "structured API error helper"),
-        ("账号不存在", "missing account login message"),
-        ("密码不正确", "wrong password login message"),
+        ("Account not found", "missing account login message"),
+        ("Incorrect password", "wrong password login message"),
         ("create_auth_session", "server session creation"),
         ("get_current_user", "current user resolver"),
         ("exception_handler(HTTPException)", "structured http exception handler"),
@@ -85,25 +90,31 @@ def main() -> None:
         ("logout-btn", "logout button"),
     ]:
         require_any(frontend, (f'id="{element_id}"', f'id={{"{element_id}"}}'), label)
+    require(frontend, "/api/auth/oauth/github/start", "github start path")
+    require(frontend, "returnTo", "github oauth frontend return target")
+    require(frontend, "encodeURIComponent", "github oauth safe return encoding")
+    require(frontend, "copy-github-callback-btn", "copy github callback binding")
+    for token, label in [
+        ('"/api/auth/me"', "React me request"),
+        ('"/api/auth/login"', "React login request"),
+        ('"/api/auth/register"', "React register request"),
+        ('"/api/auth/logout"', "React logout request"),
+        ("handleLogin", "React login submit handler"),
+        ("handleRegister", "React register submit handler"),
+        ("setAuthMessage", "React inline auth error rendering"),
+        ("authMessages", "React inline auth error state"),
+    ]:
+        require(frontend, token, label)
 
     for token, label in [
         ("currentUser", "frontend current user state"),
         ("checkAuth", "auth bootstrap"),
         ("showAuthScreen", "auth gate"),
         ("renderCurrentUser", "user render"),
-        ("submitLogin", "login submit handler"),
-        ("submitRegister", "register submit handler"),
-        ("readErrorMessage", "frontend api error parsing"),
-        ("showAuthMessage", "inline auth error rendering"),
-        ("clearAuthMessage", "inline auth error reset"),
-        ("logout", "logout handler"),
+        ("ApiError", "frontend api error type"),
+        ("notifyAuthRequired", "frontend 401 auth notification"),
+        ("knowflow:react-auth-logout", "React logout bridge"),
         ('"/api/auth/me"', "me request"),
-        ('"/api/auth/login"', "login request"),
-        ('"/api/auth/register"', "register request"),
-        ('"/api/auth/logout"', "logout request"),
-        ('"/api/auth/oauth/github/start"', "github start path"),
-        ("github-callback-url", "github callback frontend rendering"),
-        ("copy-github-callback-btn", "copy github callback binding"),
         ("credentials: \"include\"", "cookie credentials"),
         ("response.status === 401", "401 auth handling"),
     ]:
@@ -126,12 +137,15 @@ def main() -> None:
         require(readme, token, label)
 
     for token, label in [
-        ("KNOWFLOW_BASE_URL=http://127.0.0.1:8000", "env base url example"),
+        ("KNOWFLOW_BASE_URL=http://127.0.0.1:8010", "env base url example"),
         ("KNOWFLOW_GITHUB_CLIENT_ID=", "env github client id"),
         ("KNOWFLOW_GITHUB_CLIENT_SECRET=", "env github client secret"),
         ("KNOWFLOW_COOKIE_SECURE=0", "env cookie secure"),
     ]:
         require(env_example, token, label)
+
+    if '"dbUrl":' in backend:
+        raise AssertionError("public runtime metadata must not expose a database URL or local filesystem path")
 
 
 if __name__ == "__main__":

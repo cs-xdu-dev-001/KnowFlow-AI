@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { renderMarkdown } from "../controller/markdown.js";
 
 const actionEvents = {
   copy: "knowflow:react-message-copy",
@@ -35,10 +36,14 @@ function MessageBubble({ message }) {
   }
 
   if (message.role === "assistant") {
-    return <div {...props} dangerouslySetInnerHTML={{ __html: message.html }} />;
+    return <div {...props} dangerouslySetInnerHTML={{ __html: renderMarkdown(message.rawContent) }} />;
   }
 
   return <div {...props}>{message.rawContent}</div>;
+}
+
+function normalizeRawContent(value) {
+  return String(value ?? "");
 }
 
 function MessageRow({ message }) {
@@ -49,14 +54,28 @@ function MessageRow({ message }) {
   return (
     <div className={rowClassName}>
       <MessageBubble message={message} />
-      {message.role === "assistant" ? (
-        <div className={"message-actions"}>
-          <button type={"button"} data-message-action={"copy"}>
-            {"复制"}
+      {message.role === "assistant" && !message.thinking && !message.streaming ? (
+        <div className={"message-actions"} role={"group"} aria-label={"消息操作"}>
+          <button type={"button"} data-message-action={"copy"} aria-label={"复制答案"} title={"复制答案"}>
+            <svg viewBox={"0 0 24 24"} width={"18"} height={"18"} aria-hidden={"true"}>
+              <rect x={"9"} y={"9"} width={"11"} height={"11"} rx={"2"}></rect>
+              <path d={"M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"}></path>
+            </svg>
           </button>
-          <button type={"button"} className={"retry-answer-button"} data-message-action={"retry"}>
-            {"重试"}
-          </button>
+          {message.retryable ? (
+            <button
+              type={"button"}
+              className={"retry-answer-button"}
+              data-message-action={"retry"}
+              aria-label={"重新生成"}
+              title={"重新生成"}
+            >
+              <svg viewBox={"0 0 24 24"} width={"18"} height={"18"} aria-hidden={"true"}>
+                <path d={"M20 11a8 8 0 1 0-2.34 5.66"}></path>
+                <path d={"M20 4v7h-7"}></path>
+              </svg>
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -68,37 +87,37 @@ export function ChatMessages() {
   const nextMessageIdRef = useRef(1);
   const [messages, setMessages] = useState([]);
   const [showWelcome, setShowWelcome] = useState(true);
-
   const findBubble = (messageId) =>
-    messagesRef.current?.querySelector(`[data-react-message-id="${messageId}"]`) || null;
-
+    messagesRef.current?.querySelector('[data-react-message-id="' + messageId + '"]') || null;
   const scrollToBottom = () => {
-    const messagesNode = messagesRef.current;
-    if (messagesNode) messagesNode.scrollTop = messagesNode.scrollHeight;
+    const node = messagesRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
   };
-
   const normalizeMessage = (payload, id) => {
-    const rawContent = String(payload.rawContent ?? payload.content ?? "");
+    const rawContent = normalizeRawContent(payload.rawContent ?? payload.content);
     return {
       id,
-      role: payload.role,
+      role: payload.role === "user" ? "user" : "assistant",
       rawContent: payload.thinking ? "" : rawContent,
-      html: payload.thinking ? "" : payload.html || "",
       thinking: Boolean(payload.thinking),
       streaming: Boolean(payload.streaming),
+      retryable: Boolean(payload.retryable),
     };
   };
-
   const updateMessage = (messageId, updater) => {
+    let didUpdate = false;
     flushSync(() => {
       setMessages((currentMessages) =>
-        currentMessages.map((message) => (message.id === messageId ? updater(message) : message)),
+        currentMessages.map((message) => {
+          if (message.id !== messageId) return message;
+          didUpdate = true;
+          return updater(message);
+        }),
       );
     });
     scrollToBottom();
-    return findBubble(messageId);
+    return { messageId, bubble: findBubble(messageId), handled: didUpdate };
   };
-
   const resetMessages = ({ showWelcome: nextShowWelcome = false } = {}) => {
     flushSync(() => {
       setMessages([]);
@@ -107,6 +126,17 @@ export function ChatMessages() {
     scrollToBottom();
     return messagesRef.current;
   };
+  const appendMessage = (payload) => {
+    const messageId = "react-message-" + nextMessageIdRef.current;
+    nextMessageIdRef.current += 1;
+    const message = normalizeMessage(payload || {}, messageId);
+    flushSync(() => {
+      setShowWelcome(false);
+      setMessages((currentMessages) => [...currentMessages, message]);
+    });
+    scrollToBottom();
+    return { messageId, bubble: findBubble(messageId) };
+  };
 
   useEffect(() => {
     document.querySelector("#page-chat")?.classList.toggle("chat-empty", showWelcome);
@@ -114,73 +144,85 @@ export function ChatMessages() {
   }, [showWelcome]);
 
   useEffect(() => {
-    const messages = messagesRef.current;
-    if (!messages) return undefined;
-
+    const messagesNode = messagesRef.current;
+    if (!messagesNode) return undefined;
     const handleMessageActionClick = (event) => {
       const target = event.target instanceof Element ? event.target : null;
       const button = target?.closest("[data-message-action]");
-      if (!button || !messages.contains(button)) return;
-
+      if (!button || !messagesNode.contains(button)) return;
       const eventName = actionEvents[button.dataset.messageAction];
       if (!eventName) return;
-
       const bubble = button.closest(".message-row")?.querySelector(".message.assistant") || null;
       event.preventDefault();
       window.dispatchEvent(
         new CustomEvent(eventName, {
           detail: {
             bubble,
-            rawContent: bubble?.dataset.rawContent || bubble?.textContent || "",
+            messageId: bubble?.dataset.reactMessageId || "",
+            rawContent: bubble?.dataset.rawContent || "",
           },
         }),
       );
     };
-
-    messages.addEventListener("click", handleMessageActionClick);
-    return () => messages.removeEventListener("click", handleMessageActionClick);
+    messagesNode.addEventListener("click", handleMessageActionClick);
+    return () => messagesNode.removeEventListener("click", handleMessageActionClick);
   }, []);
 
   useEffect(() => {
-    const controller = {
-      appendMessage(payload) {
-        const messageId = `react-message-${nextMessageIdRef.current}`;
-        nextMessageIdRef.current += 1;
-        const message = normalizeMessage(payload || {}, messageId);
-        flushSync(() => {
-          setShowWelcome(false);
-          setMessages((currentMessages) => [...currentMessages, message]);
-        });
-        scrollToBottom();
-        return findBubble(messageId);
-      },
-      resetMessages,
-      setMessageContent(messageId, payload = {}) {
-        const rawContent = String(payload.rawContent ?? payload.content ?? "");
-        return updateMessage(messageId, (message) => ({
-          ...message,
-          rawContent,
-          html: payload.html || "",
-          thinking: false,
-          streaming: Boolean(payload.streaming),
-        }));
-      },
-      setMessageThinking(messageId, payload = {}) {
-        return updateMessage(messageId, (message) => ({
-          ...message,
-          rawContent: "",
-          html: "",
-          thinking: Boolean(payload.enabled),
-          streaming: Boolean(payload.streaming),
-        }));
-      },
+    const handleAppend = (event) => {
+      const detail = event.detail || {};
+      const result = appendMessage(detail);
+      detail.messageId = result.messageId;
+      detail.bubble = result.bubble;
+      detail.handled = Boolean(result.messageId);
+    };
+    const handleReset = (event) => {
+      const detail = event.detail || {};
+      detail.node = resetMessages({ showWelcome: detail.showWelcome });
+      detail.handled = true;
+    };
+    const handleContent = (event) => {
+      const detail = event.detail || {};
+      const messageId = detail.messageId || detail.bubble?.dataset?.reactMessageId;
+      if (!messageId) return;
+
+      const rawContent = normalizeRawContent(detail.rawContent ?? detail.content);
+      const result = updateMessage(messageId, (message) => ({
+        ...message,
+        rawContent,
+        thinking: false,
+        streaming: Boolean(detail.streaming),
+      }));
+      detail.messageId = result.messageId;
+      detail.bubble = result.bubble;
+      detail.handled = result.handled;
+    };
+    const handleThinking = (event) => {
+      const detail = event.detail || {};
+      const messageId = detail.messageId || detail.bubble?.dataset?.reactMessageId;
+      if (!messageId) return;
+
+      const thinking = Boolean(detail.enabled);
+      const result = updateMessage(messageId, (message) => ({
+        ...message,
+        rawContent: thinking ? "" : message.rawContent,
+        thinking,
+        streaming: Boolean(detail.streaming),
+      }));
+      detail.messageId = result.messageId;
+      detail.bubble = result.bubble;
+      detail.handled = result.handled;
     };
 
-    window.__knowflowReactMessages = controller;
+    window.addEventListener("knowflow:react-message-append", handleAppend);
+    window.addEventListener("knowflow:react-messages-reset", handleReset);
+    window.addEventListener("knowflow:react-message-content", handleContent);
+    window.addEventListener("knowflow:react-message-thinking", handleThinking);
     return () => {
-      if (window.__knowflowReactMessages === controller) {
-        delete window.__knowflowReactMessages;
-      }
+      window.removeEventListener("knowflow:react-message-append", handleAppend);
+      window.removeEventListener("knowflow:react-messages-reset", handleReset);
+      window.removeEventListener("knowflow:react-message-content", handleContent);
+      window.removeEventListener("knowflow:react-message-thinking", handleThinking);
     };
   }, []);
 
@@ -188,7 +230,7 @@ export function ChatMessages() {
     <div className={"messages"} id={"chat-messages"} ref={messagesRef}>
       {showWelcome ? (
         <div className={"welcome-card"}>
-          <h2>{"What can I help with?"}</h2>
+          <h2>{"有什么可以帮你？"}</h2>
         </div>
       ) : null}
       {messages.map((message) => (

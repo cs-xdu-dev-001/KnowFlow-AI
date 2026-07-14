@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { AuthScreen } from "./components/AuthScreen.jsx";
 import { Sidebar } from "./components/Sidebar.jsx";
 import { ChatPage } from "./components/ChatPage.jsx";
@@ -5,22 +6,119 @@ import { KnowledgePage } from "./components/KnowledgePage.jsx";
 import { SettingsPage } from "./components/SettingsPage.jsx";
 import { Toast } from "./components/Toast.jsx";
 import { KnowFlowController } from "./components/KnowFlowController.jsx";
+import { useAuth } from "./auth/AuthProvider.jsx";
+
+const pageKeys = new Set(["chat", "knowledge", "settings"]);
+const SIDEBAR_LAYOUT_VERSION = "20260522-chatgpt-sidebar";
+
+function readStoredBoolean(key, defaultValue) {
+  if (typeof window === "undefined") return defaultValue;
+  try {
+    const stored = window.localStorage.getItem(key);
+    return stored === null ? defaultValue : stored === "1";
+  } catch {
+    return defaultValue;
+  }
+}
+
+function writeStoredBoolean(key, value) {
+  try {
+    window.localStorage.setItem(key, value ? "1" : "0");
+  } catch {
+    // Storage can be unavailable in private contexts; layout still works in memory.
+  }
+}
+
+function readInitialSidebarCollapsed() {
+  if (typeof window === "undefined") return false;
+  try {
+    if (window.localStorage.getItem("knowflow.sidebarLayoutVersion") !== SIDEBAR_LAYOUT_VERSION) {
+      window.localStorage.setItem("knowflow.sidebarLayoutVersion", SIDEBAR_LAYOUT_VERSION);
+      window.localStorage.setItem("knowflow.sidebarCollapsed", "0");
+    }
+  } catch {
+    return false;
+  }
+  return readStoredBoolean("knowflow.sidebarCollapsed", false);
+}
 
 function WorkbenchShell() {
+  const { authenticated, loading } = useAuth();
+  const [activePage, setActivePage] = useState("chat");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readInitialSidebarCollapsed);
+  const [drawerCollapsed, setDrawerCollapsed] = useState(() => readStoredBoolean("knowflow.drawerCollapsed", true));
+  const shellLocked = loading || !authenticated;
+
+  useEffect(() => {
+    const handlePageEvent = (event) => {
+      const page = event.detail?.page;
+      if (pageKeys.has(page)) {
+        setActivePage(page);
+      }
+    };
+    window.addEventListener("knowflow:react-page-change", handlePageEvent);
+    window.addEventListener("knowflow:react-page-activated", handlePageEvent);
+    return () => {
+      window.removeEventListener("knowflow:react-page-change", handlePageEvent);
+      window.removeEventListener("knowflow:react-page-activated", handlePageEvent);
+    };
+  }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle("sidebar-collapsed", sidebarCollapsed);
+    return () => document.body.classList.remove("sidebar-collapsed");
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    document.body.classList.toggle("drawer-collapsed", drawerCollapsed);
+    return () => document.body.classList.remove("drawer-collapsed");
+  }, [drawerCollapsed]);
+
+  useEffect(() => {
+    const toggleSidebar = () => {
+      setSidebarCollapsed((current) => {
+        const next = !current;
+        writeStoredBoolean("knowflow.sidebarCollapsed", next);
+        return next;
+      });
+    };
+    const toggleDrawer = () => {
+      setDrawerCollapsed((current) => {
+        const next = !current;
+        writeStoredBoolean("knowflow.drawerCollapsed", next);
+        return next;
+      });
+    };
+    const closeDrawer = () => {
+      writeStoredBoolean("knowflow.drawerCollapsed", true);
+      setDrawerCollapsed(true);
+    };
+    window.addEventListener("knowflow:react-sidebar-toggle", toggleSidebar);
+    window.addEventListener("knowflow:react-drawer-toggle", toggleDrawer);
+    window.addEventListener("knowflow:react-drawer-close", closeDrawer);
+    return () => {
+      window.removeEventListener("knowflow:react-sidebar-toggle", toggleSidebar);
+      window.removeEventListener("knowflow:react-drawer-toggle", toggleDrawer);
+      window.removeEventListener("knowflow:react-drawer-close", closeDrawer);
+    };
+  }, []);
+
   return (
     <>
       <a className="skip-link" href="#main-stage">
-        跳到主内容
+        跳到主要内容
       </a>
       <AuthScreen />
-      <div className="app-shell" id="app-shell">
-        <Sidebar />
-        <main className="main-stage" id="main-stage" tabIndex={-1}>
-          <ChatPage />
-          <KnowledgePage />
-          <SettingsPage />
-        </main>
-      </div>
+      {!shellLocked ? (
+        <div className="app-shell" id="app-shell">
+          <Sidebar activePage={activePage} collapsed={sidebarCollapsed} />
+          <main className="main-stage" id="main-stage" tabIndex={-1}>
+            <ChatPage active={activePage === "chat"} />
+            <KnowledgePage active={activePage === "knowledge"} />
+            <SettingsPage active={activePage === "settings"} />
+          </main>
+        </div>
+      ) : null}
       <Toast />
       <KnowFlowController />
     </>

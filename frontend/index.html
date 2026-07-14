@@ -1,8 +1,9 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>KnowFlow AI</title>
     <style>
       :root {
@@ -109,15 +110,15 @@
     <main>
       <div class="brand">
         <div class="mark">K</div>
-        <h1>KnowFlow AI 前端需要先构建</h1>
+        <h1>Build the KnowFlow AI frontend first</h1>
       </div>
       <p>
-        旧版静态 <code>app.js</code> 已经移除。现在前端只走 React + Vite：
-        开发时启动 Vite，生产预览时先生成 <code>frontend/dist</code>。
+        The current frontend is built with React and Vite. During development, run the Vite server. For production preview,
+        generate <code>frontend/dist</code> first.
       </p>
-      <p>开发运行：</p>
+      <p>Development:</p>
       <code class="command">cd frontend && npm run dev</code>
-      <p style="margin-top: 18px;">生产构建：</p>
+      <p style="margin-top: 18px;">Production build:</p>
       <code class="command">cd frontend && npm run build</code>
     </main>
   </body>

@@ -16,9 +16,9 @@ def api_error_payload(code: int, message: str, data: Any = None) -> dict[str, An
 def normalize_api_error_detail(detail: Any, status_code: int) -> dict[str, Any]:
     if isinstance(detail, dict):
         code = int(detail.get("code") or status_code * 100)
-        message = str(detail.get("message") or detail.get("detail") or "????")
+        message = str(detail.get("message") or detail.get("detail") or "Unknown error")
         return api_error_payload(code, message, detail.get("data"))
-    message = str(detail or "????")
+    message = str(detail or "Unknown error")
     return api_error_payload(status_code * 100, message, None)
 
 

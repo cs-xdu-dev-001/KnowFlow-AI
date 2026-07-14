@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,7 +31,12 @@ def forbid(text: str, needle: str, label: str) -> None:
 def main() -> None:
     backend = read_backend()
     chat_router = read("backend/knowflow/routers/chat.py")
-    app_js = read("frontend/react/src/controller/knowflowController.js")
+    app_js = "\n".join([
+        read("frontend/react/src/controller/knowflowController.js"),
+        read("frontend/react/src/controller/chatFlow.js"),
+        read("frontend/react/src/controller/attachmentFlow.js"),
+        read("frontend/react/src/controller/controllerState.js"),
+    ])
     frontend = read_frontend()
     styles = read("frontend/styles.css")
 
@@ -46,8 +51,8 @@ def main() -> None:
     require(backend, '"/api/chat/attachments"', "chat attachment upload endpoint")
     require(backend, "toolCalls", "tool calls returned to stream")
     require(backend, "remote_model_error_answer", "remote model error answer")
-    require(backend, "未使用本地 fallback 伪装回答", "configured remote model should not silently fallback")
-    require(backend, "127.0.0.1/localhost 指的是 KnowFlow 后端所在机器", "localhost endpoint hint")
+    require(backend, "Remote model call failed. KnowFlow did not hide the failure with a local fallback answer.", "configured remote model should not silently fallback")
+    require(backend, "127.0.0.1/localhost refers to the machine running the KnowFlow backend", "localhost endpoint hint")
     require(chat_router, "from .extensions import agent_chat", "chat endpoint can route automatic tool requests to agent handler")
     for tool_name in ["knowledge_search", "session_memory_search", "document_summary", "markdown_draft_generate"]:
         require(backend, tool_name, f"backend tool {tool_name}")
@@ -58,7 +63,7 @@ def main() -> None:
     require(frontend, 'id={"attachment-tray"}', "attachment tray")
     require(frontend, "menu-card", "compact menu card rows")
     require(frontend, 'id={"composer-kb-select"}', "composer knowledge-base selector")
-    require(frontend, "普通对话，不使用知识库", "simplified composer context copy")
+    require(frontend, "\u672a\u9009\u62e9\u77e5\u8bc6\u5e93", "simplified composer context copy")
     require(frontend, 'id={"tool-timeline-mini"}', "tool drawer")
     for token in ["tool-mode-tabs", "tool-option-grid", 'name="tool-mode"', 'value="manual"', 'data-tool="knowledge_search"']:
         forbid(frontend, token, "manual tool control")
@@ -75,7 +80,7 @@ def main() -> None:
     require(app_js, "uploadChatAttachment", "frontend uploads chat attachment")
     require(app_js, "removeChatAttachment", "frontend removes chat attachment")
     require(app_js, "previewUrl", "frontend image preview")
-    require(app_js, "renderToolStatus", "frontend renders tool status")
+    require(frontend, "\u5df2\u9009\u62e9\u77e5\u8bc6\u5e93", "frontend renders composer knowledge status")
     for token in ["react-tool-mode-change", "react-tool-selection-change", "selectedTools", "persistToolSettings"]:
         forbid(app_js, token, "manual tool frontend state")
 
@@ -88,7 +93,7 @@ def main() -> None:
     require(styles, ".tool-chip", "tool chip styles")
     for token in [".tool-mode-tabs", ".tool-option-grid", ".manual-tool-options"]:
         forbid(styles, token, "manual tool style")
-    forbid(frontend, '<div class="menu-title">????</div>', "old form-like tool mode block")
+    forbid(frontend, '<div class="menu-title">\u5de5\u5177\u6a21\u5f0f</div>', "old form-like tool mode block")
 
 
 if __name__ == "__main__":

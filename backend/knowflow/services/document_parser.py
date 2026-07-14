@@ -39,12 +39,13 @@ def validate_upload_file(filename: str, data: bytes) -> None:
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_UPLOAD_SUFFIXES:
         allowed = ", ".join(sorted(ALLOWED_UPLOAD_SUFFIXES))
-        raise HTTPException(status_code=400, detail=f"不支持的文件类型：{suffix or '无扩展名'}。支持：{allowed}")
+        extension = suffix or "no extension"
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {extension}. Supported types: {allowed}")
     if not data:
-        raise HTTPException(status_code=400, detail="上传文件为空")
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
     if len(data) > MAX_UPLOAD_FILE_SIZE:
         limit_mb = MAX_UPLOAD_FILE_SIZE / 1024 / 1024
-        raise HTTPException(status_code=413, detail=f"文件过大，当前限制为 {limit_mb:.0f} MB")
+        raise HTTPException(status_code=413, detail=f"File is too large. The current limit is {limit_mb:.0f} MB.")
 
 
 async def read_upload_file_with_limit(upload_file) -> bytes:
@@ -57,7 +58,7 @@ async def read_upload_file_with_limit(upload_file) -> bytes:
         total += len(chunk)
         if total > MAX_UPLOAD_FILE_SIZE:
             limit_mb = MAX_UPLOAD_FILE_SIZE / 1024 / 1024
-            raise HTTPException(status_code=413, detail=f"文件过大，当前限制为 {limit_mb:.0f} MB")
+            raise HTTPException(status_code=413, detail=f"File is too large. The current limit is {limit_mb:.0f} MB.")
         chunks.append(chunk)
     return b"".join(chunks)
 
@@ -72,7 +73,7 @@ def split_text(text_value: str) -> list[str]:
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=CHUNK_SIZE,
             chunk_overlap=CHUNK_OVERLAP,
-            separators=["\n\n", "\n", "。", "！", "？", ".", "!", "?", ",", "，", " "],
+            separators=["\n\n", "\n", "。", "；", "，", ".", "!", "?", ",", ";", " "],
             length_function=len,
         )
         return [item.strip() for item in splitter.split_text(cleaned) if item.strip()]
@@ -150,9 +151,9 @@ def extract_text_from_upload(filename: str, data: bytes) -> str:
     if suffix in IMAGE_SUFFIXES:
         mime_type = IMAGE_MIME_TYPES.get(suffix, "image/*")
         return (
-            f"[图片附件]\n文件名：{filename}\n类型：{mime_type}\n大小：{len(data)} bytes\n"
-            "说明：当前版本已接收截图并保留预览；文本模型无法直接读取图片像素，"
-            "如需识别截图文字，需要接入 OCR 或视觉模型。"
+            f"[Image attachment]\nFilename: {filename}\nType: {mime_type}\nSize: {len(data)} bytes\n"
+            "Note: KnowFlow received this image and kept a preview. Text-only models cannot read image pixels directly; "
+            "connect OCR or a vision model if you need screenshot text recognition."
         )
     raw_text_suffixes = {".txt", ".md", ".markdown", ".log", ".yaml", ".yml", ".xml"}
     if suffix in raw_text_suffixes:
@@ -210,4 +211,4 @@ def extract_text_from_upload(filename: str, data: bytes) -> str:
                 if hasattr(shape, "text") and shape.text.strip():
                     lines.append(shape.text.strip())
         return "\n".join(lines)
-    raise HTTPException(status_code=400, detail="支持 txt、md、pdf、docx、xlsx、pptx、html、json、csv、tsv、rtf 等常见文档")
+    raise HTTPException(status_code=400, detail="Supported document types include txt, md, pdf, docx, xlsx, pptx, html, json, csv, tsv, rtf, yaml, xml, and log.")

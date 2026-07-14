@@ -1,11 +1,30 @@
 from fastapi import APIRouter
+from sqlalchemy import text
 
 from ..runtime import *
 
 router = APIRouter()
 
+KNOWLEDGE_TAGS = ["Knowledge Bases"]
+DOCUMENT_TAGS = ["Documents"]
+RAG_TAGS = ["RAG Debug"]
 
-@router.post("/api/knowledge-bases", tags=["知识库"], summary="新建知识库")
+
+def normalize_knowledge_base(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "description": row.get("description"),
+        "embedding_model_config_id": row["embedding_model_config_id"],
+        "document_count": row.get("document_count") or 0,
+        "chunk_count": row.get("chunk_count") or 0,
+        "status": row.get("status") or "active",
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+    }
+
+
+@router.post("/api/knowledge-bases", tags=KNOWLEDGE_TAGS, summary="Create a knowledge base")
 def create_knowledge_base(payload: KnowledgeBaseIn, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     get_model_config(payload.embeddingModelConfigId, "embedding", user_id)
@@ -23,21 +42,22 @@ def create_knowledge_base(payload: KnowledgeBaseIn, request: Request) -> dict[st
             "updated_at": now_str(),
         },
     )
-    return api_success(get_kb(int(kb_id or 0), user_id))
+    return api_success(normalize_knowledge_base(get_kb(int(kb_id or 0), user_id)))
 
 
-@router.get("/api/knowledge-bases", tags=["知识库"], summary="查询知识库列表")
+@router.get("/api/knowledge-bases", tags=KNOWLEDGE_TAGS, summary="List knowledge bases")
 def list_knowledge_bases(request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
-    return api_success(fetch_all("SELECT * FROM knowledge_base WHERE user_id=:user_id ORDER BY id DESC", {"user_id": user_id}))
+    rows = fetch_all("SELECT * FROM knowledge_base WHERE user_id=:user_id ORDER BY id DESC", {"user_id": user_id})
+    return api_success([normalize_knowledge_base(row) for row in rows])
 
 
-@router.get("/api/knowledge-bases/{kb_id}", tags=["知识库"], summary="查询知识库详情")
+@router.get("/api/knowledge-bases/{kb_id}", tags=KNOWLEDGE_TAGS, summary="Read a knowledge base")
 def read_knowledge_base(kb_id: int, request: Request) -> dict[str, Any]:
-    return api_success(get_kb(kb_id, current_user_id(request)))
+    return api_success(normalize_knowledge_base(get_kb(kb_id, current_user_id(request))))
 
 
-@router.put("/api/knowledge-bases/{kb_id}", tags=["知识库"], summary="更新知识库")
+@router.put("/api/knowledge-bases/{kb_id}", tags=KNOWLEDGE_TAGS, summary="Update a knowledge base")
 def update_knowledge_base(kb_id: int, payload: KnowledgeBaseUpdate, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     get_kb(kb_id, user_id)
@@ -45,19 +65,25 @@ def update_knowledge_base(kb_id: int, payload: KnowledgeBaseUpdate, request: Req
         execute("UPDATE knowledge_base SET name=:name, updated_at=:updated_at WHERE id=:id AND user_id=:user_id", {"name": payload.name, "updated_at": now_str(), "id": kb_id, "user_id": user_id})
     if payload.description is not None:
         execute("UPDATE knowledge_base SET description=:description, updated_at=:updated_at WHERE id=:id AND user_id=:user_id", {"description": payload.description, "updated_at": now_str(), "id": kb_id, "user_id": user_id})
-    return api_success(get_kb(kb_id, user_id))
+    return api_success(normalize_knowledge_base(get_kb(kb_id, user_id)))
 
 
-@router.delete("/api/knowledge-bases/{kb_id}", tags=["知识库"], summary="删除知识库")
+@router.delete("/api/knowledge-bases/{kb_id}", tags=KNOWLEDGE_TAGS, summary="Delete a knowledge base")
 def delete_knowledge_base(kb_id: int, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     get_kb(kb_id, user_id)
-    execute("DELETE FROM message_reference WHERE document_id IN (SELECT id FROM document WHERE knowledge_base_id=:id AND user_id=:user_id)", {"id": kb_id, "user_id": user_id})
-    execute("DELETE FROM retrieval_run WHERE knowledge_base_id=:id AND user_id=:user_id", {"id": kb_id, "user_id": user_id})
-    execute("DELETE FROM document_task WHERE knowledge_base_id=:id AND user_id=:user_id", {"id": kb_id, "user_id": user_id})
-    execute("DELETE FROM document_chunk WHERE knowledge_base_id=:id", {"id": kb_id})
-    execute("DELETE FROM document WHERE knowledge_base_id=:id AND user_id=:user_id", {"id": kb_id, "user_id": user_id})
-    execute("DELETE FROM knowledge_base WHERE id=:id AND user_id=:user_id", {"id": kb_id, "user_id": user_id})
+    documents = fetch_all(
+        "SELECT storage_path FROM document WHERE knowledge_base_id=:id AND user_id=:user_id",
+        {"id": kb_id, "user_id": user_id},
+    )
+    with db.engine.begin() as conn:
+        conn.execute(text("DELETE FROM message_reference WHERE document_id IN (SELECT id FROM document WHERE knowledge_base_id=:id AND user_id=:user_id)"), {"id": kb_id, "user_id": user_id})
+        conn.execute(text("DELETE FROM retrieval_run WHERE knowledge_base_id=:id AND user_id=:user_id"), {"id": kb_id, "user_id": user_id})
+        conn.execute(text("DELETE FROM document_task WHERE knowledge_base_id=:id AND user_id=:user_id"), {"id": kb_id, "user_id": user_id})
+        conn.execute(text("DELETE FROM document_chunk WHERE knowledge_base_id=:id"), {"id": kb_id})
+        conn.execute(text("DELETE FROM document WHERE knowledge_base_id=:id AND user_id=:user_id"), {"id": kb_id, "user_id": user_id})
+        conn.execute(text("DELETE FROM knowledge_base WHERE id=:id AND user_id=:user_id"), {"id": kb_id, "user_id": user_id})
+    cleanup_document_source_files(documents)
     return api_success(True)
 
 
@@ -66,7 +92,6 @@ def normalize_document_task(row: dict[str, Any] | None) -> dict[str, Any] | None
         return None
     return {
         "id": row["id"],
-        "userId": row["user_id"],
         "documentId": row["document_id"],
         "knowledgeBaseId": row["knowledge_base_id"],
         "taskType": row["task_type"],
@@ -155,8 +180,23 @@ def get_latest_document_task(document_id: int, user_id: int | None = None) -> di
     return normalize_document_task(row)
 
 
+def normalize_document(document: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": document["id"],
+        "knowledge_base_id": document["knowledge_base_id"],
+        "filename": document["filename"],
+        "file_type": document.get("file_type"),
+        "file_size": document.get("file_size") or 0,
+        "parse_status": document.get("parse_status") or "pending",
+        "chunk_count": document.get("chunk_count") or 0,
+        "error_message": document.get("error_message"),
+        "created_at": document.get("created_at"),
+        "updated_at": document.get("updated_at"),
+    }
+
+
 def attach_latest_task(document: dict[str, Any], user_id: int | None = None) -> dict[str, Any]:
-    item = dict(document)
+    item = normalize_document(document)
     item["latestTask"] = get_latest_document_task(int(item["id"]), user_id)
     return item
 
@@ -172,6 +212,25 @@ def refresh_kb_counts(kb_id: int) -> None:
         """,
         {"id": kb_id, "updated_at": now_str()},
     )
+
+
+def remove_document_source_file(document: dict[str, Any]) -> None:
+    raw_path = str(document.get("storage_path") or "").strip()
+    if not raw_path:
+        return
+    upload_root = UPLOAD_DIR.resolve()
+    storage_path = Path(raw_path).resolve()
+    if storage_path != upload_root and upload_root not in storage_path.parents:
+        raise RuntimeError("Refusing to delete a document source outside the upload directory.")
+    storage_path.unlink(missing_ok=True)
+
+
+def cleanup_document_source_files(documents: list[dict[str, Any]]) -> None:
+    for document in documents:
+        try:
+            remove_document_source_file(document)
+        except Exception:
+            pass
 
 
 def process_document_ingestion(document_id: int, task_id: int | None = None) -> None:
@@ -195,13 +254,13 @@ def process_document_ingestion(document_id: int, task_id: int | None = None) -> 
 
         path = Path(document["storage_path"])
         if not path.exists():
-            raise FileNotFoundError("原始文件不存在，无法重新入库")
+            raise FileNotFoundError("Original file is missing, so the document cannot be reingested.")
 
         data = path.read_bytes()
         text_value = extract_text_from_upload(document["filename"], data)
         chunks = split_text(text_value)
         if not chunks:
-            raise ValueError("文档未解析出有效文本")
+            raise ValueError("No valid text was extracted from this document.")
 
         if task_id:
             update_document_task(task_id, stage="chunking", progress=55)
@@ -271,7 +330,7 @@ def process_document_ingestion(document_id: int, task_id: int | None = None) -> 
         refresh_kb_counts(kb_id)
 
 
-@router.post("/api/knowledge-bases/{knowledge_base_id}/documents", tags=["文档入库"], summary="上传文档并入库")
+@router.post("/api/knowledge-bases/{knowledge_base_id}/documents", tags=DOCUMENT_TAGS, summary="Upload a document")
 async def upload_document(knowledge_base_id: int, background_tasks: BackgroundTasks, request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
     user_id = current_user_id(request)
     get_kb(knowledge_base_id, user_id)
@@ -293,7 +352,7 @@ async def upload_document(knowledge_base_id: int, background_tasks: BackgroundTa
                 "taskId": existing["latestTask"]["id"] if existing.get("latestTask") else None,
                 "duplicated": True,
             },
-            "document already exists",
+            "Document already exists.",
         )
     storage_path = UPLOAD_DIR / f"{knowledge_base_id}_{file_md5}_{filename}"
     storage_path.write_bytes(data)
@@ -326,7 +385,7 @@ async def upload_document(knowledge_base_id: int, background_tasks: BackgroundTa
     return api_success({"documentId": document_id, "taskId": task_id, "filename": filename, "parseStatus": "parsing", "chunkCount": 0})
 
 
-@router.get("/api/knowledge-bases/{knowledge_base_id}/documents", tags=["文档入库"], summary="查询知识库文档列表")
+@router.get("/api/knowledge-bases/{knowledge_base_id}/documents", tags=DOCUMENT_TAGS, summary="List documents in a knowledge base")
 def list_documents(knowledge_base_id: int, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     get_kb(knowledge_base_id, user_id)
@@ -334,14 +393,14 @@ def list_documents(knowledge_base_id: int, request: Request) -> dict[str, Any]:
     return api_success([attach_latest_task(row, user_id) for row in rows])
 
 
-@router.get("/api/documents/{document_id}", tags=["文档入库"], summary="查询文档处理状态")
+@router.get("/api/documents/{document_id}", tags=DOCUMENT_TAGS, summary="Read document processing status")
 def read_document(document_id: int, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     row = get_document_for_user(document_id, user_id)
     return api_success(attach_latest_task(row, user_id))
 
 
-@router.get("/api/documents/{document_id}/tasks", tags=["文档入库"], summary="查询文档后台任务")
+@router.get("/api/documents/{document_id}/tasks", tags=DOCUMENT_TAGS, summary="Read document background tasks")
 def read_document_tasks(document_id: int, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     get_document_for_user(document_id, user_id)
@@ -352,7 +411,7 @@ def read_document_tasks(document_id: int, request: Request) -> dict[str, Any]:
     return api_success([normalize_document_task(row) for row in rows])
 
 
-@router.get("/api/documents/{document_id}/chunks", tags=["文档入库"], summary="查询文档切片")
+@router.get("/api/documents/{document_id}/chunks", tags=DOCUMENT_TAGS, summary="Read document chunks")
 def read_document_chunks(document_id: int, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     get_document_for_user(document_id, user_id)
@@ -360,13 +419,13 @@ def read_document_chunks(document_id: int, request: Request) -> dict[str, Any]:
     return api_success(rows)
 
 
-@router.post("/api/documents/{document_id}/reindex", tags=["文档入库"], summary="重新解析并向量化文档")
+@router.post("/api/documents/{document_id}/reindex", tags=DOCUMENT_TAGS, summary="Reindex a document")
 def reindex_document(document_id: int, background_tasks: BackgroundTasks, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     document = get_document_for_user(document_id, user_id)
     path = Path(document["storage_path"])
     if not path.exists():
-        raise HTTPException(status_code=404, detail="原始文件不存在")
+        raise HTTPException(status_code=404, detail="Original file not found.")
     execute(
         """
         UPDATE document
@@ -380,20 +439,34 @@ def reindex_document(document_id: int, background_tasks: BackgroundTasks, reques
     return api_success({"documentId": document_id, "taskId": task_id, "parseStatus": "parsing", "chunkCount": int(document.get("chunk_count") or 0)})
 
 
-@router.delete("/api/documents/{document_id}", tags=["文档入库"], summary="删除文档")
+@router.delete("/api/documents/{document_id}", tags=DOCUMENT_TAGS, summary="Delete a document")
 def delete_document(document_id: int, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     document = get_document_for_user(document_id, user_id)
+    kb_id = int(document["knowledge_base_id"])
+    with db.engine.begin() as conn:
+        conn.execute(text("DELETE FROM message_reference WHERE document_id=:document_id"), {"document_id": document_id})
+        conn.execute(text("DELETE FROM document_task WHERE document_id=:document_id AND user_id=:user_id"), {"document_id": document_id, "user_id": user_id})
+        conn.execute(text("DELETE FROM document_chunk WHERE document_id=:document_id"), {"document_id": document_id})
+        conn.execute(text("DELETE FROM document WHERE id=:document_id AND user_id=:user_id"), {"document_id": document_id, "user_id": user_id})
+        conn.execute(
+            text(
+                """
+                UPDATE knowledge_base
+                SET document_count=(SELECT COUNT(*) FROM document WHERE knowledge_base_id=:id),
+                    chunk_count=(SELECT COUNT(*) FROM document_chunk WHERE knowledge_base_id=:id),
+                    updated_at=:updated_at
+                WHERE id=:id
+                """
+            ),
+            {"id": kb_id, "updated_at": now_str()},
+        )
     vector_store.delete_document(document_id)
-    execute("DELETE FROM message_reference WHERE document_id=:document_id", {"document_id": document_id})
-    execute("DELETE FROM document_task WHERE document_id=:document_id AND user_id=:user_id", {"document_id": document_id, "user_id": user_id})
-    execute("DELETE FROM document_chunk WHERE document_id=:document_id", {"document_id": document_id})
-    execute("DELETE FROM document WHERE id=:document_id AND user_id=:user_id", {"document_id": document_id, "user_id": user_id})
-    refresh_kb_counts(int(document["knowledge_base_id"]))
+    cleanup_document_source_files([document])
     return api_success(True)
 
 
-@router.post("/api/retrieval/debug", tags=["RAG 调试"], summary="调试 RAG 检索召回")
+@router.post("/api/retrieval/debug", tags=RAG_TAGS, summary="Debug RAG retrieval")
 def retrieval_debug(payload: RetrievalDebugRequest, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     get_kb(payload.knowledgeBaseId, user_id)
@@ -434,10 +507,10 @@ def retrieval_debug(payload: RetrievalDebugRequest, request: Request) -> dict[st
     )
 
 
-@router.get("/api/retrieval/runs/{run_id}", tags=["RAG 调试"], summary="查询 RAG 检索运行详情")
+@router.get("/api/retrieval/runs/{run_id}", tags=RAG_TAGS, summary="Read a RAG retrieval run")
 def read_retrieval_run(run_id: int, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
     row = fetch_one("SELECT * FROM retrieval_run WHERE id=:id AND user_id=:user_id", {"id": run_id, "user_id": user_id})
     if not row:
-        raise HTTPException(status_code=404, detail="检索运行不存在")
+        raise HTTPException(status_code=404, detail="Retrieval run not found.")
     return api_success(normalize_retrieval_run(row))

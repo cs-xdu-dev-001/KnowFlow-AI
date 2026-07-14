@@ -10,6 +10,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 RUNTIME = ROOT / "backend" / "knowflow" / "runtime.py"
 KNOWLEDGE = ROOT / "backend" / "knowflow" / "routers" / "knowledge.py"
+CONFIG = ROOT / "backend" / "knowflow" / "config.py"
 
 
 def read(path: pathlib.Path) -> str:
@@ -32,9 +33,11 @@ for name in ("model_gateway.py", "vector_store.py", "document_parser.py"):
     assert (services_dir / name).exists(), f"missing service module: {name}"
 
 knowledge_source = read(KNOWLEDGE)
+config_source = read(CONFIG)
 assert "read_upload_file_with_limit" in knowledge_source, "upload route should read with a hard size limit"
 assert "sanitize_upload_filename" in knowledge_source, "upload route should sanitize incoming filenames"
 assert "validate_upload_file" in knowledge_source, "upload route should validate files before storage"
+assert "KNOWFLOW_UPLOAD_DIR" in config_source, "upload storage must be configurable for isolated tests and deployments"
 
 config = importlib.import_module("knowflow.config")
 assert config.MAX_UPLOAD_FILE_SIZE >= 1024 * 1024, "upload size limit is unexpectedly tiny"

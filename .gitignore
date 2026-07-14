@@ -28,8 +28,12 @@ __pycache__/
 data/*.db
 data/*.db-*
 data/uploads/
+data/test-uploads/
 logs/
 *.log
 
 # Internal planning notes
 docs/superpowers/
+.tmp-test/
+data/test-dbs/
+frontend/react/public/vendor/

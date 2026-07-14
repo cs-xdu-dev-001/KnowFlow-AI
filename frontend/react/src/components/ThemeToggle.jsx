@@ -50,8 +50,8 @@ export function ThemeToggle({ className = "" }) {
       id={"theme-toggle-btn"}
       type={"button"}
       aria-pressed={isDark}
-      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-      title={isDark ? "Night mode" : "Day mode"}
+      aria-label={isDark ? "切换到日间模式" : "切换到夜间模式"}
+      title={isDark ? "夜间模式" : "日间模式"}
       onClick={handleThemeToggle}
     >
       {isDark ? <MoonIcon /> : <SunIcon />}

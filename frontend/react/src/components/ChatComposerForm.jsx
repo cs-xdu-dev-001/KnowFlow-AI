@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const valueOf = (value) => (value === undefined || value === null ? "" : String(value));
 
@@ -11,23 +11,49 @@ function pickKnowledgeValue(knowledgeBases, currentValue) {
 export function ChatComposerForm() {
   const [attachments, setAttachments] = useState([]);
   const [knowledgeBases, setKnowledgeBases] = useState([]);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [question, setQuestion] = useState("");
   const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState("");
   const [sending, setSending] = useState(false);
+  const textareaRef = useRef(null);
+
+  const resizeTextarea = (node = textareaRef.current) => {
+    if (!node) return;
+    node.style.height = "auto";
+    node.style.height = Math.min(node.scrollHeight, 150) + "px";
+  };
 
   useEffect(() => {
-    const handleDocumentClick = () => {
-      window.dispatchEvent(new CustomEvent("knowflow:react-composer-menu-close"));
-    };
+    const handleDocumentClick = () => setMenuOpen(false);
     document.addEventListener("click", handleDocumentClick);
     return () => document.removeEventListener("click", handleDocumentClick);
+  }, []);
+
+  useEffect(() => {
+    const handleComposerMenuClose = () => setMenuOpen(false);
+    window.addEventListener("knowflow:react-composer-menu-close", handleComposerMenuClose);
+    return () => window.removeEventListener("knowflow:react-composer-menu-close", handleComposerMenuClose);
+  }, []);
+
+  useEffect(() => {
+    const handleComposerReset = (event) => {
+      const shouldFocus = Boolean(event.detail?.focus);
+      setQuestion("");
+      window.requestAnimationFrame(() => {
+        resizeTextarea();
+        if (shouldFocus) textareaRef.current?.focus();
+      });
+    };
+    window.addEventListener("knowflow:react-composer-reset", handleComposerReset);
+    return () => window.removeEventListener("knowflow:react-composer-reset", handleComposerReset);
   }, []);
 
   useEffect(() => {
     const handleAttachmentsUpdated = (event) => {
       setAttachments(Array.isArray(event.detail?.attachments) ? event.detail.attachments : []);
     };
-    window.addEventListener("knowflow:legacy-attachments-updated", handleAttachmentsUpdated);
-    return () => window.removeEventListener("knowflow:legacy-attachments-updated", handleAttachmentsUpdated);
+    window.addEventListener("knowflow:react-attachments-updated", handleAttachmentsUpdated);
+    return () => window.removeEventListener("knowflow:react-attachments-updated", handleAttachmentsUpdated);
   }, []);
 
   useEffect(() => {
@@ -42,40 +68,29 @@ export function ChatComposerForm() {
       if (!Object.prototype.hasOwnProperty.call(event.detail || {}, "selectedChatKnowledgeBaseId")) return;
       setSelectedKnowledgeBaseId(valueOf(event.detail?.selectedChatKnowledgeBaseId));
     };
-    window.addEventListener("knowflow:legacy-knowledge-options-updated", handleKnowledgeOptionsUpdated);
-    window.addEventListener("knowflow:legacy-knowledge-selection-updated", handleKnowledgeSelectionUpdated);
+    window.addEventListener("knowflow:react-knowledge-options-updated", handleKnowledgeOptionsUpdated);
+    window.addEventListener("knowflow:react-knowledge-selection-updated", handleKnowledgeSelectionUpdated);
     return () => {
-      window.removeEventListener("knowflow:legacy-knowledge-options-updated", handleKnowledgeOptionsUpdated);
-      window.removeEventListener("knowflow:legacy-knowledge-selection-updated", handleKnowledgeSelectionUpdated);
+      window.removeEventListener("knowflow:react-knowledge-options-updated", handleKnowledgeOptionsUpdated);
+      window.removeEventListener("knowflow:react-knowledge-selection-updated", handleKnowledgeSelectionUpdated);
     };
   }, []);
 
   useEffect(() => {
-    const handleSendingUpdated = (event) => {
-      setSending(Boolean(event.detail?.sending));
-    };
-    window.addEventListener("knowflow:legacy-sending-updated", handleSendingUpdated);
-    return () => window.removeEventListener("knowflow:legacy-sending-updated", handleSendingUpdated);
+    const handleSendingUpdated = (event) => setSending(Boolean(event.detail?.sending));
+    window.addEventListener("knowflow:react-sending-updated", handleSendingUpdated);
+    return () => window.removeEventListener("knowflow:react-sending-updated", handleSendingUpdated);
   }, []);
 
   const handleComposerMenuToggle = (event) => {
     event.stopPropagation();
-    window.dispatchEvent(new CustomEvent("knowflow:react-composer-menu-toggle"));
+    setMenuOpen((current) => !current);
   };
-
-  const handleComposerMenuClick = (event) => {
-    event.stopPropagation();
-  };
+  const handleComposerMenuClick = (event) => event.stopPropagation();
 
   const handleChatFileChange = (event) => {
-    window.dispatchEvent(
-      new CustomEvent("knowflow:react-chat-files-change", {
-        detail: {
-          files: Array.from(event.target.files || []),
-          input: event.target,
-        },
-      }),
-    );
+    setMenuOpen(false);
+    window.dispatchEvent(new CustomEvent("knowflow:react-chat-files-change", { detail: { files: Array.from(event.target.files || []), input: event.target } }));
   };
 
   const handleComposerKnowledgeBaseChange = (event) => {
@@ -86,33 +101,30 @@ export function ChatComposerForm() {
 
   const handleChatSubmit = (event) => {
     event.preventDefault();
-    window.dispatchEvent(new CustomEvent("knowflow:react-chat-submit"));
+    window.dispatchEvent(new CustomEvent("knowflow:react-chat-submit", { detail: { question: question.trim() } }));
   };
 
-  const handleChatInput = () => {
-    window.dispatchEvent(new CustomEvent("knowflow:react-chat-input"));
+  const handleChatInput = (event) => {
+    setQuestion(event.target.value);
+    resizeTextarea(event.target);
   };
 
   const handleChatPaste = (event) => {
-    window.dispatchEvent(
-      new CustomEvent("knowflow:react-chat-paste", {
-        detail: {
-          clipboardData: event.clipboardData,
-          preventDefault: () => event.preventDefault(),
-        },
-      }),
-    );
+    window.dispatchEvent(new CustomEvent("knowflow:react-chat-paste", { detail: { clipboardData: event.clipboardData, preventDefault: () => event.preventDefault() } }));
   };
 
   const handleChatKeyDown = (event) => {
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
-    window.dispatchEvent(new CustomEvent("knowflow:react-chat-enter-submit"));
+    window.dispatchEvent(new CustomEvent("knowflow:react-chat-enter-submit", { detail: { question: question.trim() } }));
   };
 
   const handleRemoveAttachment = (attachmentId) => {
     window.dispatchEvent(new CustomEvent("knowflow:react-attachment-remove", { detail: { attachmentId } }));
   };
+
+  const composerPlusClassName = menuOpen ? "composer-plus active" : "composer-plus";
+  const composerMenuClassName = menuOpen ? "composer-menu open" : "composer-menu";
 
   return (
     <form className={"composer"} id={"chat-form"} onSubmit={handleChatSubmit}>
@@ -127,79 +139,69 @@ export function ChatComposerForm() {
             <span className={"attachment-pill"} key={attachment.attachmentId}>
               {preview}
               <span>{attachment.filename}</span>
-              <button type={"button"} title={"移除附件"} onClick={() => handleRemoveAttachment(attachment.attachmentId)}>
-                {"x"}
+              <button
+                type={"button"}
+                title={"移除附件"}
+                aria-label={`移除附件：${attachment.filename}`}
+                onClick={() => handleRemoveAttachment(attachment.attachmentId)}
+              >
+                <svg viewBox={"0 0 24 24"} aria-hidden={"true"} focusable={"false"}>
+                  <path
+                    d={"M6 6l12 12M18 6 6 18"}
+                    fill={"none"}
+                    stroke={"currentColor"}
+                    strokeWidth={"2"}
+                    strokeLinecap={"round"}
+                  />
+                </svg>
               </button>
             </span>
           );
         })}
       </div>
       <div className={"composer-shell"}>
-        <button className={"composer-plus"} id={"composer-plus-btn"} type={"button"} aria-label={"添加文件或工具"} onClick={handleComposerMenuToggle} disabled={sending}>
-          {"+"}
+        <button className={composerPlusClassName} id={"composer-plus-btn"} type={"button"} aria-label={"添加文件或工具"} onClick={handleComposerMenuToggle} disabled={sending}>
+          <svg viewBox={"0 0 24 24"} aria-hidden={"true"} focusable={"false"}>
+            <path d={"M12 5v14M5 12h14"} />
+          </svg>
         </button>
-        <div className={"composer-menu"} id={"composer-menu"} aria-label={"文件和工具菜单"} onClick={handleComposerMenuClick}>
+        <div className={composerMenuClassName} id={"composer-menu"} aria-label={"文件与工具菜单"} onClick={handleComposerMenuClick}>
           <section>
             <label className={"menu-card upload-item"}>
-              <input
-                id={"chat-file-input"}
-                type={"file"}
-                multiple
-                accept={".txt,.md,.markdown,.pdf,.docx,.xlsx,.xlsm,.pptx,.html,.htm,.json,.csv,.tsv,.yaml,.yml,.xml,.log,.rtf,.png,.jpg,.jpeg,.webp,.gif,.bmp"}
-                onChange={handleChatFileChange}
-              />
-              <span className={"menu-icon"}>{"↑"}</span>
+              <input id={"chat-file-input"} type={"file"} multiple accept={".txt,.md,.markdown,.pdf,.docx,.xlsx,.xlsm,.pptx,.html,.htm,.json,.csv,.tsv,.yaml,.yml,.xml,.log,.rtf,.png,.jpg,.jpeg,.webp,.gif,.bmp"} onChange={handleChatFileChange} />
+              <span className={"menu-icon"} aria-hidden={"true"}>
+                <svg viewBox={"0 0 24 24"} focusable={"false"}>
+                  <path d={"M12 15V4m0 0L8 8m4-4 4 4"} />
+                  <path d={"M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"} />
+                </svg>
+              </span>
               <span>
-                <strong>{"上传文件"}</strong>
-                <small>{"支持文档；截图可直接粘贴到输入框"}</small>
+                <strong>{"文件"}</strong>
+                <small>{"上传附件"}</small>
               </span>
             </label>
           </section>
           <section className={"composer-settings-panel"} id={"composer-settings-panel"}>
             <div className={"menu-section-title"}>
-              <strong>{"知识库上下文"}</strong>
-              <span>{"选择一个知识库，或者保持普通对话。"}</span>
+              <strong>{"知识库"}</strong>
             </div>
             <label className={"menu-select-card knowledge-select-card"}>
-              <span>{"知识库"}</span>
-              <select id={"composer-kb-select"} aria-label={"知识库上下文"} value={selectedKnowledgeBaseId} onChange={handleComposerKnowledgeBaseChange}>
+              <span>{"范围"}</span>
+              <select id={"composer-kb-select"} aria-label={"选择知识库"} value={selectedKnowledgeBaseId} onChange={handleComposerKnowledgeBaseChange}>
                 <option value={""}>{"不使用知识库"}</option>
                 {knowledgeBases.map((kb) => (
-                  <option value={valueOf(kb.id)} key={kb.id}>
-                    {kb.name}
-                  </option>
+                  <option value={valueOf(kb.id)} key={kb.id}>{kb.name}</option>
                 ))}
               </select>
             </label>
             <p className={"composer-menu-summary"} id={"composer-context-summary"}>
-              {selectedKnowledgeBaseId ? "已使用知识库上下文" : "普通对话，不使用知识库"}
+              {selectedKnowledgeBaseId ? "已选择知识库" : "未选择知识库"}
             </p>
           </section>
         </div>
-        <textarea
-          name={"question"}
-          rows={"1"}
-          placeholder={"Ask anything."}
-          disabled={sending}
-          onInput={handleChatInput}
-          onPaste={handleChatPaste}
-          onKeyDown={handleChatKeyDown}
-        />
+        <textarea ref={textareaRef} name={"question"} rows={"1"} placeholder={"有问题尽管问。"} value={question} disabled={sending} onInput={handleChatInput} onPaste={handleChatPaste} onKeyDown={handleChatKeyDown} />
         <button className={"composer-send-button"} id={"chat-submit-btn"} type={"submit"} aria-label={sending ? "停止生成" : "发送消息"} title={sending ? "停止生成" : "发送消息"}>
-          {sending ? (
-            <span className={"stop-square"} aria-hidden={"true"}></span>
-          ) : (
-            <svg className={"send-arrow"} viewBox={"0 0 24 24"} aria-hidden={"true"}>
-              <path
-                d={"M12 19V5m0 0-6 6m6-6 6 6"}
-                fill={"none"}
-                stroke={"currentColor"}
-                strokeWidth={"2.35"}
-                strokeLinecap={"round"}
-                strokeLinejoin={"round"}
-              ></path>
-            </svg>
-          )}
+          {sending ? <span className={"stop-square"} aria-hidden={"true"}></span> : <svg className={"send-arrow"} viewBox={"0 0 24 24"} aria-hidden={"true"}><path d={"M12 19V5m0 0-6 6m6-6 6 6"} fill={"none"} stroke={"currentColor"} strokeWidth={"2.35"} strokeLinecap={"round"} strokeLinejoin={"round"}></path></svg>}
         </button>
       </div>
     </form>

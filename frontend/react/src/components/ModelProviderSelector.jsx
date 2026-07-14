@@ -1,12 +1,8 @@
-import { useState } from "react";
 import { providerCards } from "../data/settings.js";
 
-export function ModelProviderSelector() {
-  const [selectedProvider, setSelectedProvider] = useState("deepseek");
-
+export function ModelProviderSelector({ selectedProvider = "deepseek", onProviderSelect }) {
   const handleProviderSelect = (provider) => {
-    setSelectedProvider(provider);
-    window.dispatchEvent(new CustomEvent("knowflow:react-provider-change", { detail: { provider } }));
+    onProviderSelect?.(provider);
   };
 
   return (
@@ -17,9 +13,11 @@ export function ModelProviderSelector() {
           className={selectedProvider === provider.key ? "provider-card selected" : "provider-card"}
           type={"button"}
           data-provider={provider.key}
+          aria-pressed={selectedProvider === provider.key}
+          aria-label={`选择${provider.name}`}
           onClick={() => handleProviderSelect(provider.key)}
         >
-          {provider.label}
+          <strong>{provider.name}</strong>
         </button>
       ))}
     </div>

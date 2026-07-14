@@ -1,24 +1,22 @@
-export function KnowledgeHeader() {
+export function KnowledgeHeader({ onOpenRetrievalDrawer = () => {}, onOpenKnowledgeBaseModal = () => {} }) {
   const handleOpenRetrievalDrawer = () => {
-    window.dispatchEvent(new CustomEvent("knowflow:react-open-retrieval-drawer"));
+    onOpenRetrievalDrawer();
   };
-
   const handleOpenKnowledgeBaseModal = () => {
-    window.dispatchEvent(new CustomEvent("knowflow:react-open-kb-modal"));
+    onOpenKnowledgeBaseModal();
   };
 
   return (
-    <header className={"page-header"}>
+    <header className={"knowledge-hero"}>
       <div>
-        <span className={"eyebrow"}>{"KNOWLEDGE"}</span>
-        <h1>{"知识库工作区"}</h1>
-        <p>{"把资料入库、处理和检索调试收束到一个工作台，主页面只保留高频操作。"}</p>
+        <span className={"eyebrow"}>{"知识库"}</span>
+        <h1>{"知识库"}</h1>
       </div>
-      <div className={"page-actions"}>
-        <button type={"button"} id={"open-retrieval-drawer-btn"} onClick={handleOpenRetrievalDrawer}>
-          {"检索调试"}
+      <div className={"hero-actions"}>
+        <button id={"open-retrieval-drawer-btn"} type={"button"} onClick={handleOpenRetrievalDrawer}>
+          {"检索"}
         </button>
-        <button type={"button"} className={"primary"} id={"open-kb-modal-btn"} onClick={handleOpenKnowledgeBaseModal}>
+        <button id={"open-kb-modal-btn"} type={"button"} onClick={handleOpenKnowledgeBaseModal}>
           {"新建知识库"}
         </button>
       </div>

@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,11 +27,16 @@ def main() -> None:
     require(backend, "\"matchedTerms\"", "retrieval debug matched terms")
     require(backend, '"/api/retrieval/runs/{run_id}"', "retrieval run detail endpoint")
     require(backend, "RETRIEVAL_SCORE_THRESHOLD", "score threshold setting")
+    require(backend, "\"avgScore\"", "average retrieval score")
+    require(backend, "\"belowThresholdCount\"", "below-threshold score count")
+    require(backend, "\"scoreBuckets\"", "retrieval score buckets")
 
     require(app_js, "renderRagQuality", "frontend quality rendering")
     require(app_js, "ragQuality", "frontend consumes quality payload")
     require(app_js, "openRetrievalDrawerFromRun", "frontend debug action from answer")
+    require(read("frontend/react/src/components/ChatEvidenceDrawer.jsx"), "rag-quality-metrics", "frontend quality metrics")
     require(styles, ".rag-quality-card", "RAG quality card style")
+    require(styles, ".quality-metrics", "RAG quality metrics style")
     require(styles, ".quality-level", "quality level style")
 
     print("rag quality contract is present")

@@ -31,7 +31,7 @@ def main() -> None:
         '"/api/chat"',
         '"/api/sessions"',
     ]
-    required_frontend_tokens = [
+    hidden_frontend_tokens = [
         '"/docs"',
         '"/redoc"',
         '"/openapi.json"',
@@ -48,8 +48,8 @@ def main() -> None:
 
     for token in required_backend_tokens:
         assert token in backend, f"backend missing {token}"
-    for token in required_frontend_tokens:
-        assert token in frontend, f"frontend missing {token}"
+    for token in hidden_frontend_tokens:
+        assert token not in frontend, f"frontend should not expose developer endpoint {token}"
     for token in required_docs_tokens:
         assert token in docs, f"docs missing {token}"
 

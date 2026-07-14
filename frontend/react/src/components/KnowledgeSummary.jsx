@@ -1,47 +1,34 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+const valueOf = (value) => (value === undefined || value === null ? "" : String(value));
 
 export function KnowledgeSummary() {
-  const [selectedKnowledgeBase, setSelectedKnowledgeBase] = useState(null);
-  const [embeddingModel, setEmbeddingModel] = useState(null);
-
+  const [knowledgeBases, setKnowledgeBases] = useState([]);
+  const [models, setModels] = useState([]);
+  const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState(null);
   useEffect(() => {
-    const handleKnowledgeDetailUpdated = (event) => {
-      setSelectedKnowledgeBase(event.detail?.selectedKnowledgeBase || null);
-      setEmbeddingModel(event.detail?.embeddingModel || null);
-    };
-    window.addEventListener("knowflow:legacy-knowledge-detail-updated", handleKnowledgeDetailUpdated);
-    return () => window.removeEventListener("knowflow:legacy-knowledge-detail-updated", handleKnowledgeDetailUpdated);
+    const handleKnowledgeOptionsUpdated = (event) => { setKnowledgeBases(Array.isArray(event.detail?.knowledgeBases) ? event.detail.knowledgeBases : []); setSelectedKnowledgeBaseId(event.detail?.selectedKnowledgeBaseId || null); };
+    const handleKnowledgeSelectionUpdated = (event) => { if (Object.prototype.hasOwnProperty.call(event.detail || {}, "selectedKnowledgeBaseId")) setSelectedKnowledgeBaseId(event.detail?.selectedKnowledgeBaseId || null); };
+    const handleModelOptionsUpdated = (event) => setModels(Array.isArray(event.detail?.models) ? event.detail.models : []);
+    window.addEventListener("knowflow:react-knowledge-options-updated", handleKnowledgeOptionsUpdated);
+    window.addEventListener("knowflow:react-knowledge-selection-updated", handleKnowledgeSelectionUpdated);
+    window.addEventListener("knowflow:react-model-options-updated", handleModelOptionsUpdated);
+    return () => { window.removeEventListener("knowflow:react-knowledge-options-updated", handleKnowledgeOptionsUpdated); window.removeEventListener("knowflow:react-knowledge-selection-updated", handleKnowledgeSelectionUpdated); window.removeEventListener("knowflow:react-model-options-updated", handleModelOptionsUpdated); };
   }, []);
+  const selectedKnowledgeBase = useMemo(() => knowledgeBases.find((kb) => valueOf(kb.id) === valueOf(selectedKnowledgeBaseId)) || null, [knowledgeBases, selectedKnowledgeBaseId]);
+  const embeddingModel = useMemo(() => models.find((model) => valueOf(model.id) === valueOf(selectedKnowledgeBase?.embeddingModelConfigId || selectedKnowledgeBase?.embedding_model_config_id)) || null, [models, selectedKnowledgeBase]);
+  if (!selectedKnowledgeBase) return null;
 
   return (
-    <section className={"knowledge-summary-bar"}>
-      <div className={"command-copy"}>
-        <h2>{"当前知识空间"}</h2>
-        <p>{"选中知识库后，上传、文档处理、聊天上下文和检索范围会自动同步。"}</p>
+    <section className={"knowledge-summary panel"} id={"kb-detail"}>
+      <div className={"panel-title"}>
+        <h2>{"当前知识库"}</h2>
       </div>
-      <div className={"metrics-grid"} id={"kb-detail"}>
-        {selectedKnowledgeBase ? (
-          <>
-            <div className={"metric"}>
-              <span>{"当前知识库"}</span>
-              <strong>{selectedKnowledgeBase.name}</strong>
-            </div>
-            <div className={"metric"}>
-              <span>{"文档数"}</span>
-              <strong>{selectedKnowledgeBase.document_count}</strong>
-            </div>
-            <div className={"metric"}>
-              <span>{"切片数"}</span>
-              <strong>{selectedKnowledgeBase.chunk_count}</strong>
-            </div>
-            <div className={"metric"}>
-              <span>{"向量模型"}</span>
-              <strong>{embeddingModel?.name || "未绑定"}</strong>
-            </div>
-          </>
-        ) : (
-          <p className={"empty-state"}>{"当前还没有知识库。"}</p>
-        )}
+      <div className={"knowledge-metrics"}>
+        <div><span>{"知识库"}</span><strong>{selectedKnowledgeBase.name}</strong></div>
+        <div><span>{"文档"}</span><strong>{selectedKnowledgeBase.document_count || 0}</strong></div>
+        <div><span>{"分段"}</span><strong>{selectedKnowledgeBase.chunk_count || 0}</strong></div>
+        <div><span>{"向量模型"}</span><strong>{embeddingModel?.name || "未绑定"}</strong></div>
       </div>
     </section>
   );

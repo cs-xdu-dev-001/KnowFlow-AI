@@ -17,7 +17,7 @@ from datetime import datetime
 from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Any, Iterable
-from urllib.parse import urlencode
+from urllib.parse import urlparse, urlencode
 
 import requests
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, Response, UploadFile
@@ -272,7 +272,7 @@ def get_current_user(request: Request) -> dict[str, Any] | None:
 def current_user_id(request: Request) -> int:
     user = getattr(request.state, "current_user", None)
     if not user:
-        raise HTTPException(status_code=401, detail="请先登录")
+        raise HTTPException(status_code=401, detail="Please sign in first.")
     return int(user["id"])
 
 
@@ -291,24 +291,57 @@ def oauth_provider_status() -> dict[str, Any]:
     }
 
 
-def make_oauth_state() -> str:
+def oauth_origin(value: str) -> tuple[str, str, int] | None:
+    try:
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return None
+        if parsed.username or parsed.password:
+            return None
+        default_port = 443 if parsed.scheme == "https" else 80
+        return parsed.scheme, parsed.hostname.lower(), parsed.port or default_port
+    except ValueError:
+        return None
+
+
+def is_allowed_oauth_return_url(return_to: str) -> bool:
+    origin = oauth_origin(return_to)
+    if not origin:
+        return False
+    allowed_origins = {
+        candidate
+        for candidate in (oauth_origin(BASE_URL), *(oauth_origin(item) for item in OAUTH_RETURN_ORIGINS))
+        if candidate
+    }
+    return origin in allowed_origins
+
+
+def make_oauth_state(return_to: str = "") -> str:
     payload = {"nonce": secrets.token_urlsafe(12), "ts": int(time.time())}
+    if is_allowed_oauth_return_url(return_to):
+        payload["returnTo"] = return_to
     encoded = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")).decode("ascii").rstrip("=")
     signature = hmac.new(SECRET_KEY.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).hexdigest()
     return f"{encoded}.{signature}"
 
 
-def verify_oauth_state(state: str) -> bool:
+def read_oauth_state_payload(state: str) -> dict[str, Any] | None:
     try:
         encoded, signature = state.split(".", 1)
         expected = hmac.new(SECRET_KEY.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(signature, expected):
-            return False
+            return None
         padding = "=" * (-len(encoded) % 4)
         payload = json.loads(base64.urlsafe_b64decode((encoded + padding).encode("ascii")).decode("utf-8"))
-        return int(time.time()) - int(payload.get("ts", 0)) <= 600
+        if int(time.time()) - int(payload.get("ts", 0)) > 600:
+            return None
+        return payload
     except Exception:
-        return False
+        return None
+
+
+def verify_oauth_state(state: str) -> bool:
+    return read_oauth_state_payload(state) is not None
 
 
 def get_or_create_oauth_user(provider: str, provider_user_id: str, email: str, username: str, display_name: str, avatar_url: str) -> dict[str, Any]:
@@ -463,21 +496,21 @@ def get_kb(kb_id: int, user_id: int | None = None) -> dict[str, Any]:
     else:
         row = fetch_one("SELECT * FROM knowledge_base WHERE id=:id AND user_id=:user_id", {"id": kb_id, "user_id": user_id})
     if not row:
-        raise HTTPException(status_code=404, detail="知识库不存在")
+        raise HTTPException(status_code=404, detail="Knowledge base not found.")
     return row
 
 
 def get_document_for_user(document_id: int, user_id: int) -> dict[str, Any]:
     row = fetch_one("SELECT * FROM document WHERE id=:id AND user_id=:user_id", {"id": document_id, "user_id": user_id})
     if not row:
-        raise HTTPException(status_code=404, detail="文档不存在")
+        raise HTTPException(status_code=404, detail="Document not found.")
     return row
 
 
 def get_session_for_user(session_id: str, user_id: int) -> dict[str, Any]:
     row = fetch_one("SELECT * FROM chat_session WHERE id=:id AND user_id=:user_id", {"id": session_id, "user_id": user_id})
     if not row:
-        raise HTTPException(status_code=404, detail="会话不存在")
+        raise HTTPException(status_code=404, detail="Session not found.")
     return row
 
 
@@ -494,7 +527,7 @@ def ensure_session(session_id: str | None, knowledge_base_id: int | None, chat_m
     final_id = session_id or f"session-{uuid.uuid4().hex[:12]}"
     row = fetch_one("SELECT id FROM chat_session WHERE id=:id AND user_id=:user_id", {"id": final_id, "user_id": user_id})
     if session_id and not row and fetch_one("SELECT id FROM chat_session WHERE id=:id", {"id": final_id}):
-        raise HTTPException(status_code=404, detail="会话不存在")
+        raise HTTPException(status_code=404, detail="Session not found.")
     if not row:
         execute(
             """
@@ -504,7 +537,7 @@ def ensure_session(session_id: str | None, knowledge_base_id: int | None, chat_m
             {
                 "id": final_id,
                 "user_id": user_id,
-                "title": "新会话",
+                "title": "New chat",
                 "knowledge_base_id": knowledge_base_id,
                 "chat_model_config_id": chat_model_config_id,
                 "created_at": now_str(),
@@ -565,30 +598,37 @@ def assess_retrieval_quality(query: str, chunks: list[dict[str, Any]], threshold
     enriched = enrich_retrieval_chunks(query, chunks)
     scores = [float(item.get("score") or 0) for item in enriched]
     max_score = max(scores, default=0.0)
+    avg_score = sum(scores) / len(scores) if scores else 0.0
     hit_count = len(enriched)
     matched_count = sum(1 for item in enriched if item.get("matchedTerms"))
+    below_threshold_count = sum(1 for score in scores if score < threshold)
+    score_buckets = {
+        "strong": sum(1 for score in scores if score >= max(0.45, threshold + 0.15)),
+        "usable": sum(1 for score in scores if threshold <= score < max(0.45, threshold + 0.15)),
+        "weak": below_threshold_count,
+    }
     if not enriched:
         quality_level = "no_match"
-        reason = "没有召回任何知识库片段。"
+        reason = "No knowledge-base chunks were retrieved."
     elif matched_count == 0 and max_score < threshold:
         quality_level = "no_match"
-        reason = "召回片段与问题关键词没有明显重合。"
+        reason = "Retrieved chunks do not clearly overlap with the question terms."
     elif max_score < threshold or matched_count == 0:
         quality_level = "weak"
-        reason = "召回片段相关性偏弱，回答需要谨慎。"
+        reason = "Retrieved chunks are weakly related, so the answer should be treated carefully."
     elif max_score >= max(0.45, threshold + 0.15) and matched_count >= 1:
         quality_level = "strong"
-        reason = "召回片段与问题匹配度较高。"
+        reason = "Retrieved chunks match the question well."
     else:
         quality_level = "usable"
-        reason = "召回片段可作为回答依据。"
+        reason = "Retrieved chunks are usable as answer evidence."
 
     suggestions: list[str] = []
     if quality_level in {"weak", "no_match"}:
         suggestions.extend(
             [
-                "换一个更具体的问题再检索。",
-                "上传包含该主题的文档，或检查当前选择的知识库。",
+                "Try a more specific question.",
+                "Upload documents about this topic or check the selected knowledge base.",
             ]
         )
     return {
@@ -598,7 +638,9 @@ def assess_retrieval_quality(query: str, chunks: list[dict[str, Any]], threshold
         "hitCount": hit_count,
         "matchedCount": matched_count,
         "maxScore": round(max_score, 4),
-        "avgScore": round(sum(scores) / len(scores), 4) if scores else 0.0,
+        "avgScore": round(avg_score, 4),
+        "belowThresholdCount": below_threshold_count,
+        "scoreBuckets": score_buckets,
         "qualityLevel": quality_level,
         "reason": reason,
         "suggestions": suggestions,
@@ -664,7 +706,6 @@ def normalize_retrieval_run(row: dict[str, Any] | None) -> dict[str, Any]:
         quality = {}
     return {
         "id": row["id"],
-        "userId": row["user_id"],
         "knowledgeBaseId": row["knowledge_base_id"],
         "messageId": row.get("message_id"),
         "query": row.get("query"),
@@ -723,9 +764,9 @@ def format_chat_attachments(attachments: list[ChatAttachment]) -> str:
         if not content:
             continue
         blocks.append(
-            f"[上传文件 {idx}] 文件：{attachment.filename}\n"
-            f"类型：{attachment.fileType or 'unknown'}\n"
-            f"内容：{content[:6000]}"
+            f"[Uploaded file {idx}] Filename: {attachment.filename}\n"
+            f"Type: {attachment.fileType or 'unknown'}\n"
+            f"Content: {content[:6000]}"
         )
     return "\n\n".join(blocks)
 
@@ -743,28 +784,28 @@ def build_messages(
     identity = model_identity(chat_config)
     attachment_text = format_chat_attachments(attachments or [])
     identity_rule = (
-        f"当前模型配置：{identity}。KnowFlow AI 只是外层应用和调用入口，不是你的模型身份。"
-        "如果用户询问你是什么模型、供应商或身份，只能根据当前模型配置回答，不要自称 KnowFlow AI。"
+        f"Current model configuration: {identity}. KnowFlow AI is only the application wrapper and call entry point, not your model identity. "
+        "If the user asks what model, provider, or identity you are, answer only from the current model configuration and do not claim to be KnowFlow AI."
     )
     if use_rag:
         context = "\n\n".join(
-            f"[参考资料 {idx}] 文件：{chunk['filename']}\n内容：{chunk['chunk_text']}"
+            f"[Reference {idx}] File: {chunk['filename']}\nContent: {chunk['chunk_text']}"
             for idx, chunk in enumerate(chunks, start=1)
         )
         system = (
             identity_rule
-            + " 你正在执行带知识库上下文的问答。优先依据参考资料回答；"
-            "如果资料不足，必须说明资料不足，不要编造。"
+            + " You are answering with knowledge-base context. Prefer the references as evidence. "
+            "If the references are insufficient, say that the material is insufficient and do not fabricate details."
         )
         user = (
-            f"历史会话：\n{history_text or '无'}\n\n参考资料：\n{context or '无相关资料'}"
-            f"\n\n上传文件：\n{attachment_text or '无'}\n\n用户问题：{question}"
+            f"Conversation history:\n{history_text or 'None'}\n\nReferences:\n{context or 'No relevant references'}"
+            f"\n\nUploaded files:\n{attachment_text or 'None'}\n\nUser question: {question}"
         )
     else:
-        system = identity_rule + " 可以结合历史会话和用户上传文件回答，不要假装已经检索知识库。"
-        user = f"历史会话：\n{history_text or '无'}\n\n上传文件：\n{attachment_text or '无'}\n\n用户问题：{question}"
+        system = identity_rule + " You may use conversation history and uploaded files, but do not pretend that you searched a knowledge base."
+        user = f"Conversation history:\n{history_text or 'None'}\n\nUploaded files:\n{attachment_text or 'None'}\n\nUser question: {question}"
     if agent_mode:
-        system += " 当前回答处于工具增强模式，需要简要说明使用了哪些依据。"
+        system += " This answer is tool-augmented, so briefly mention the evidence or tools used."
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
@@ -780,19 +821,19 @@ def fallback_answer(
     if not chunks:
         if attachment_text:
             return (
-                f"已读取你上传的文件，并结合当前会话最近 {len(history)} 条消息。\n\n"
-                f"问题：{question}\n\n"
-                f"文件内容摘要依据：\n{attachment_text[:900]}"
+                f"I read the uploaded files and used the latest {len(history)} messages from this conversation.\n\n"
+                f"Question: {question}\n\n"
+                f"File evidence summary:\n{attachment_text[:900]}"
             )
         if use_rag:
-            return "当前知识库没有检索到足够相关的资料。请先上传相关文档，或换一个更具体的问题。"
-        return f"本地 fallback 模型已收到问题：{question}\n\n当前没有启用 RAG 检索，因此本次回答不会引用知识库片段。"
-    prefix = "已调用知识库检索工具并整理如下回答：" if agent_mode else "基于知识库检索结果，回答如下："
-    lines = [prefix, "", f"问题：{question}", "", "参考依据："]
+            return "The selected knowledge base did not return enough relevant material. Upload related documents or ask a more specific question."
+        return f"The local fallback model received your question: {question}\n\nRAG retrieval is not enabled, so this answer does not cite knowledge-base chunks."
+    prefix = "The knowledge retrieval tool was used and the answer is summarized below:" if agent_mode else "Based on the retrieved knowledge-base results, here is the answer:"
+    lines = [prefix, "", f"Question: {question}", "", "Evidence:"]
     for idx, chunk in enumerate(chunks, start=1):
-        lines.append(f"{idx}. {chunk['filename']}（score={chunk['score']}）：{(chunk['chunk_text'] or '')[:180]}")
+        lines.append(f"{idx}. {chunk['filename']} (score={chunk['score']}): {(chunk['chunk_text'] or '')[:180]}")
     lines.append("")
-    lines.append(f"已结合当前会话最近 {len(history)} 条消息。真实模型未配置或调用失败，因此当前为本地 fallback 回答。")
+    lines.append(f"I also considered the latest {len(history)} messages from this conversation. No real model is configured or the model call failed, so this is a local fallback answer.")
     return "\n".join(lines)
 
 
@@ -803,20 +844,20 @@ def has_remote_model_config(chat_config: dict[str, Any] | None) -> bool:
 def remote_model_error_answer(chat_config: dict[str, Any], exc: Exception) -> str:
     base_url = chat_config.get("base_url") or ""
     hints = [
-        "请检查接口地址、API Key、模型名称是否正确。",
-        "如果你填的是本机代理或 New API 地址，请确认对应服务正在运行，且 KnowFlow 后端能访问这个端口。",
+        "Check the endpoint URL, API key, and model name.",
+        "If you entered a local proxy or New API endpoint, confirm that service is running and that the KnowFlow backend can reach that port.",
     ]
     if "127.0.0.1" in base_url or "localhost" in base_url:
-        hints.append("注意：127.0.0.1/localhost 指的是 KnowFlow 后端所在机器，不一定是浏览器所在环境。")
+        hints.append("Note: 127.0.0.1/localhost refers to the machine running the KnowFlow backend, not necessarily the browser environment.")
     return "\n".join(
         [
-            "远程模型调用失败，未使用本地 fallback 伪装回答。",
+            "Remote model call failed. KnowFlow did not hide the failure with a local fallback answer.",
             "",
-            f"- 模型配置：{model_identity(chat_config)}",
-            f"- 接口地址：{base_url or '未配置'}",
-            f"- 失败原因：{exc}",
+            f"- Model configuration: {model_identity(chat_config)}",
+            f"- Endpoint: {base_url or 'not configured'}",
+            f"- Failure reason: {exc}",
             "",
-            "处理建议：",
+            "Suggested checks:",
             *[f"- {hint}" for hint in hints],
         ]
     )
@@ -838,7 +879,7 @@ def generate_answer(
     except Exception as exc:
         if has_remote_model_config(chat_config):
             return remote_model_error_answer(chat_config, exc)
-        return fallback_answer(question, chunks, history, agent_mode, use_rag, attachments) + f"\n\n模型调用失败原因：{exc}"
+        return fallback_answer(question, chunks, history, agent_mode, use_rag, attachments) + f"\n\nModel call failure reason: {exc}"
 
 
 def should_use_agent(question: str) -> bool:
@@ -846,26 +887,40 @@ def should_use_agent(question: str) -> bool:
     agent_keywords = [
         "agent",
         "tool",
-        "工具",
-        "调用",
-        "总结",
-        "概括",
-        "提炼",
-        "亮点",
-        "草稿",
-        "博客",
+        "summary",
+        "summarize",
+        "overview",
+        "highlight",
+        "draft",
+        "blog",
         "markdown",
-        "生成",
-        "整理",
-        "对比",
-        "分析",
-        "之前",
-        "刚才",
-        "历史",
-        "发布",
-        "同步",
+        "generate",
+        "organize",
+        "compare",
+        "analyze",
+        "previous",
+        "history",
+        "publish",
+        "sync",
         "notion",
         "github",
+        "\u5de5\u5177",
+        "\u8c03\u7528",
+        "\u603b\u7ed3",
+        "\u6982\u62ec",
+        "\u63d0\u70bc",
+        "\u4eae\u70b9",
+        "\u8349\u7a3f",
+        "\u535a\u5ba2",
+        "\u751f\u6210",
+        "\u6574\u7406",
+        "\u5bf9\u6bd4",
+        "\u5206\u6790",
+        "\u4e4b\u524d",
+        "\u521a\u624d",
+        "\u5386\u53f2",
+        "\u53d1\u5e03",
+        "\u540c\u6b65",
     ]
     return any(keyword in text_value for keyword in agent_keywords) or len(question) >= 80
 

@@ -14,10 +14,14 @@ FRONTEND_DIR = PROJECT_DIR / "frontend"
 FRONTEND_BUILD_DIR = FRONTEND_DIR / "dist"
 FRONTEND_STATIC_DIR = FRONTEND_BUILD_DIR if FRONTEND_BUILD_DIR.exists() else FRONTEND_DIR
 FRONTEND_ASSETS_DIR = FRONTEND_STATIC_DIR / "assets" if FRONTEND_BUILD_DIR.exists() else FRONTEND_DIR
+FRONTEND_VENDOR_DIR = FRONTEND_STATIC_DIR / "vendor" if FRONTEND_BUILD_DIR.exists() else FRONTEND_DIR / "react" / "public" / "vendor"
 DATA_DIR = PROJECT_DIR / "data"
-UPLOAD_DIR = DATA_DIR / "uploads"
 
 load_dotenv(BACKEND_DIR / ".env")
+
+UPLOAD_DIR = Path(os.getenv("KNOWFLOW_UPLOAD_DIR", str(DATA_DIR / "uploads"))).expanduser()
+if not UPLOAD_DIR.is_absolute():
+    UPLOAD_DIR = (PROJECT_DIR / UPLOAD_DIR).resolve()
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -60,12 +64,21 @@ DB_URL = normalize_sqlite_db_url(os.getenv("KNOWFLOW_DB_URL", f"sqlite:///{(DATA
 VECTOR_BACKEND = os.getenv("KNOWFLOW_VECTOR_BACKEND", "local").lower()
 CHROMA_DIR = Path(os.getenv("KNOWFLOW_CHROMA_DIR", str(DATA_DIR / "chroma")))
 SECRET_KEY = os.getenv("KNOWFLOW_SECRET_KEY", "change-this-dev-secret")
-BASE_URL = os.getenv("KNOWFLOW_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+BASE_URL = os.getenv("KNOWFLOW_BASE_URL", "http://127.0.0.1:8010").rstrip("/")
+OAUTH_RETURN_ORIGINS = tuple(
+    origin.strip().rstrip("/")
+    for origin in os.getenv(
+        "KNOWFLOW_OAUTH_RETURN_ORIGINS",
+        "http://127.0.0.1:5173,http://localhost:5173",
+    ).split(",")
+    if origin.strip()
+)
 GITHUB_CLIENT_ID = os.getenv("KNOWFLOW_GITHUB_CLIENT_ID", "")
 GITHUB_CLIENT_SECRET = os.getenv("KNOWFLOW_GITHUB_CLIENT_SECRET", "")
 SESSION_COOKIE_NAME = "knowflow_session"
 AUTH_SESSION_TTL_SECONDS = env_int("KNOWFLOW_AUTH_SESSION_TTL", 7 * 24 * 60 * 60)
 COOKIE_SECURE = os.getenv("KNOWFLOW_COOKIE_SECURE", "0") == "1"
+ADOPT_LEGACY_DATA = os.getenv("KNOWFLOW_ADOPT_LEGACY_DATA", "0") == "1"
 CHUNK_SIZE = env_int("KNOWFLOW_CHUNK_SIZE", 800)
 CHUNK_OVERLAP = env_int("KNOWFLOW_CHUNK_OVERLAP", 120)
 DEFAULT_TOP_K = env_int("KNOWFLOW_TOP_K", 5)

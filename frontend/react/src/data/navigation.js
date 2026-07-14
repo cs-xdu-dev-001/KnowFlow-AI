@@ -1,20 +1,14 @@
 export const sidebarTools = [
   {
     key: "knowledge",
-    icon: "⌘",
     label: "知识库",
+    icon: "database",
     page: "knowledge",
   },
   {
     key: "settings",
-    icon: "⚙",
     label: "设置",
+    icon: "settings",
     page: "settings",
-  },
-  {
-    key: "docs",
-    icon: "↗",
-    label: "接口文档",
-    href: "/docs",
   },
 ];

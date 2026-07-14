@@ -19,14 +19,14 @@ export function AuthProvider({ children }) {
       return data;
     } catch (apiError) {
       setUser(null);
-      setError(apiError.message || "Unable to load current user");
+      setError(apiError.message || "无法获取当前登录状态");
       throw apiError;
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const applyLegacyAuthState = useCallback((event) => {
+  const applyAuthState = useCallback((event) => {
     const detail = event.detail || {};
     if (Object.prototype.hasOwnProperty.call(detail, "oauthProviders")) {
       setOauthProviders(detail.oauthProviders || {});
@@ -42,14 +42,24 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  const applyAuthRequired = useCallback((event) => {
+    setUser(null);
+    setLoading(false);
+    setError(event.detail?.message || "请先登录。");
+  }, []);
+
   useEffect(() => {
     getCurrentUser().catch(() => {});
   }, [getCurrentUser]);
 
   useEffect(() => {
-    window.addEventListener("knowflow:legacy-auth-state-updated", applyLegacyAuthState);
-    return () => window.removeEventListener("knowflow:legacy-auth-state-updated", applyLegacyAuthState);
-  }, [applyLegacyAuthState]);
+    window.addEventListener("knowflow:react-auth-state-updated", applyAuthState);
+    window.addEventListener("knowflow:react-auth-required", applyAuthRequired);
+    return () => {
+      window.removeEventListener("knowflow:react-auth-state-updated", applyAuthState);
+      window.removeEventListener("knowflow:react-auth-required", applyAuthRequired);
+    };
+  }, [applyAuthRequired, applyAuthState]);
 
 
   const login = useCallback(
@@ -102,7 +112,7 @@ export function AuthProvider({ children }) {
 export function useAuth() {
   const value = useContext(AuthContext);
   if (!value) {
-    throw new Error("useAuth must be used inside AuthProvider");
+    throw new Error("useAuth 必须在 AuthProvider 内使用");
   }
   return value;
 }

@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,7 +27,14 @@ def main() -> None:
     react_css = read_text("frontend/react/src/styles.css")
     js = "\n".join(
         [
-            read_text("frontend/react/src/controller/knowflowController.js"),
+            *[
+                path.read_text(encoding="utf-8")
+                for path in sorted((ROOT / "frontend" / "react" / "src" / "controller").rglob("*.js"))
+            ],
+            *[
+                path.read_text(encoding="utf-8")
+                for path in sorted((ROOT / "frontend" / "react" / "src" / "data").rglob("*.js"))
+            ],
             *[
                 path.read_text(encoding="utf-8")
                 for path in sorted((ROOT / "frontend" / "react" / "src" / "components").rglob("*.jsx"))
@@ -69,15 +76,19 @@ def main() -> None:
         ('src="/src/main.jsx"', "React Vite entry script"),
         ("data-provider={provider.key}", "custom provider card"),
         ("model-provider", "editable provider identifier"),
-        ("\u667a\u80fd\u95ee\u7b54", "Chinese chat title"),
-        ("\u77e5\u8bc6\u5e93\u4e0a\u4e0b\u6587", "optional knowledge-base context"),
-        ("\u5f15\u7528\u7247\u6bb5", "reference panel"),
-        ("\u6a21\u578b\u4f9b\u5e94\u5546", "provider settings copy"),
+        ("\u95ee\u7b54", "chat title"),
+        ("\u4e0d\u4f7f\u7528\u77e5\u8bc6\u5e93", "optional knowledge-base selection"),
+        ("\u5f15\u7528\u6765\u6e90", "reference panel"),
+        ("\u6dfb\u52a0\u6587\u6863", "compact document upload action"),
     ]
     for token, label in required_html:
         assert_contains(html, token, label)
-    for token in ["prompt-shelf", "prompt-chip", "总结知识库", "生成项目亮点", "对比方案"]:
+    for token in ["prompt-shelf", "prompt-chip", "Summarize knowledge", "Generate project highlights", "Compare options"]:
         assert token not in html, f"redundant prompt suggestion shelf should not render: {token}"
+    for token in ['aria-label={"Close"}', '{"x"}', '{"..."}', '{"+"}', '{"UP"}']:
+        assert token not in html, f"icon-only controls should render SVG icons with localized labels, not raw text: {token}"
+    for token in ['id={"open-retrieval-drawer-secondary-btn"}', 'className={"panel-title compact-title document-table-title"}']:
+        assert token not in html, f"duplicated knowledge workspace heading/action should not render: {token}"
 
     required_css = [
         ("--sidebar-width", "layout token"),
@@ -92,15 +103,24 @@ def main() -> None:
         (".sidebar-bottom-tools", "bottom settings tools style"),
         (".knowledge-shell", "knowledge shell style"),
         (".knowledge-primary", "knowledge primary style"),
+        ("Knowledge workspace flat layout pass", "flat knowledge workspace polish marker"),
+        (".knowledge-hero .hero-actions", "knowledge page action group"),
+        ("grid-template-columns: minmax(220px, 1fr) auto !important;", "compact knowledge document toolbar columns"),
+        ("Settings workspace flat layout pass", "flat settings workspace polish marker"),
+        (".settings-header", "settings page header style"),
         (".kb-row", "knowledge list row style"),
         (".document-table", "compact document table"),
         (".modal-backdrop", "modal shell style"),
+        (".modal-actions > button", "stable modal action controls"),
+        (".upload-modal-body .upload-zone.upload-zone-compact", "usable upload form geometry"),
+        (':root[data-theme="mono-dark"] .upload-queue-summary', "dark upload process surface"),
         (".retrieval-drawer", "retrieval drawer style"),
         (".document-steps", "document processing stepper"),
         (".document-error", "document failure reason panel"),
         (".badge.progress", "in-progress document badge"),
         (".thinking-indicator", "assistant thinking animation"),
         (".message-row.thinking-row .message-actions", "hide assistant actions while thinking"),
+        (".attachment-pill button svg", "bounded attachment remove icon"),
         ("@keyframes messageBreath", "breathing wait animation"),
         (".message.assistant pre", "assistant code block rendering"),
         ("Professional surface polish pass 3", "formal workspace polish marker"),
@@ -167,6 +187,9 @@ def main() -> None:
         assert_contains(app, token, label)
 
     theme_toggle = read_text("frontend/react/src/components/ThemeToggle.jsx")
+    react_index = read_text("frontend/react/index.html")
+    navigation = read_text("frontend/react/src/data/navigation.js")
+    settings_side = read_text("frontend/react/src/components/SettingsSidePanel.jsx")
     required_theme_toggle = [
         ("function ThemeToggle", "theme toggle component"),
         ("knowflow-theme", "persisted theme key"),
@@ -176,36 +199,44 @@ def main() -> None:
     ]
     for token, label in required_theme_toggle:
         assert_contains(theme_toggle, token, label)
-    assert "姝ｅ湪缁勭粐鍥炵瓟" not in combined, "thinking state should not render visible waiting copy"
+    for token in ["knowflow-theme", "document.documentElement.dataset.theme"]:
+        assert_contains(react_index, token, "pre-render theme bootstrap")
+    for token in ['key: "api-docs"', 'label: "API 文档"', 'href: "/docs"']:
+        assert token not in navigation, f"developer docs should not be a primary sidebar item: {token}"
+    assert "默认模型" in settings_side, "settings side panel should explain product state"
+    assert "<details" not in settings_side, "developer resources should not render in product settings"
+    for token in ["/docs", "/redoc", "/openapi.json", "/api/health", "高级入口", "接口文档"]:
+        assert token not in settings_side, f"developer resource should not render in product settings: {token}"
+    assert "Waiting for response" not in combined, "thinking state should not render visible waiting copy"
     assert "streaming:empty" not in css, "empty streaming pseudo-copy should not come back"
 
     required_js = [
-        ("const PROVIDER_PRESETS", "provider presets"),
+        ("export const providerPresets", "provider presets"),
         ("custom: {", "custom provider preset"),
-        ("providerKey", "custom provider resolver"),
+        ("normalizeProvider", "custom provider resolver"),
         ("mimo", "MiMo provider"),
-        ("applyProviderPreset", "provider auto-fill"),
+        ("handleProviderSelect", "provider auto-fill"),
         ("useRag: Boolean(knowledgeBaseId)", "automatic RAG behavior"),
         ('useRag: Boolean(knowledgeBaseId)', "knowledge-base toggle drives RAG"),
         ('enableTools: false', "manual tool routing disabled from simplified composer"),
         ('enabledTools: []', "manual tool list is no longer user-facing"),
         ('autoAgent: false', "automatic agent routing disabled from simplified composer"),
-        ("toggleSidebar", "sidebar interaction"),
-        ("toggleDrawer", "drawer interaction"),
-        ("state.sessions", "session state"),
+        ("handleSidebarToggle", "sidebar interaction"),
+        ("handleDrawerToggle", "drawer interaction"),
+        ("sessionApi.list", "React session state"),
         ("groupSessions", "session grouping"),
-        ("filterSessions", "session filtering"),
-        ("toggleSessionMenu", "three-dot session menu"),
-        ("renameSession", "rename session action"),
-        ("openKnowledgeBaseModal", "knowledge creation modal open action"),
-        ("closeKnowledgeBaseModal", "knowledge creation modal close action"),
-        ("openChunkModal", "chunk modal open action"),
-        ("closeChunkModal", "chunk modal close action"),
-        ("openRetrievalDrawer", "retrieval drawer open action"),
-        ("closeRetrievalDrawer", "retrieval drawer close action"),
-        ("renderDocumentRows", "compact document row renderer"),
-        ("DOCUMENT_STEPS", "document status step definitions"),
-        ("scheduleDocumentPolling", "document processing polling"),
+        ("filteredSessions", "session filtering"),
+        ("handleSessionMenuToggle", "three-dot session menu"),
+        ("handleSessionRename", "rename session action"),
+        ("handleOpenKnowledgeBaseModal", "knowledge creation modal open action"),
+        ("handleCloseKnowledgeModal", "knowledge creation modal close action"),
+        ("chunkModalOpen", "React chunk modal open state"),
+        ("handleCloseChunkModal", "React chunk modal close action"),
+        ("handleOpenRetrievalDrawer", "retrieval drawer open action"),
+        ("handleCloseRetrievalDrawer", "retrieval drawer close action"),
+        ("handleLoadDocumentChunks", "React document chunk action"),
+        ("documentSteps", "React document status step definitions"),
+        ("isDocumentProcessing", "React document processing polling"),
         ('parse_status: "uploading"', "optimistic upload state"),
         ("document-error", "document error state"),
         ("renderMarkdown", "assistant markdown renderer"),
