@@ -2,20 +2,22 @@ providers:
   deepseek:
     base_url: https://api.deepseek.com
     common_models:
-      - deepseek-chat
-      - deepseek-reasoner
+      - deepseek-v4-flash
+      - deepseek-v4-pro
   openai:
     base_url: https://api.openai.com/v1
     common_models:
-      - gpt-4.1
-      - gpt-4.1-mini
+      - gpt-5.6-sol
+      - gpt-5.6-terra
+      - gpt-5.6-luna
       - text-embedding-3-large
       - text-embedding-3-small
   dashscope:
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
     common_models:
-      - qwen-plus
-      - qwen-max
+      - qwen3.7-max
+      - qwen3.7-plus
+      - qwen3.6-plus
       - text-embedding-v4
   gemini:
     base_url: https://generativelanguage.googleapis.com/v1beta/openai
@@ -28,7 +30,6 @@ providers:
       - MiniMax-M2
       - MiniMax-M2.5
   mimo:
-    base_url: https://api.mimo-v2.com/v1
+    base_url: https://api.xiaomimimo.com/v1
     common_models:
-      - mimo-v2-pro
-      - mimo-v2-flash
+      - mimo-v2.5-pro

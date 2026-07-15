@@ -89,7 +89,7 @@ class ModelGateway:
         if config.get("top_p") is not None:
             payload["top_p"] = float(config["top_p"])
         if config.get("max_tokens") is not None:
-            if config.get("provider") == "mimo":
+            if config.get("provider") in {"mimo", "openai"}:
                 payload["max_completion_tokens"] = int(config["max_tokens"])
             else:
                 payload["max_tokens"] = int(config["max_tokens"])

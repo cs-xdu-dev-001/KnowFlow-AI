@@ -8,12 +8,12 @@ import { SettingsHeader } from "./SettingsHeader.jsx";
 import { SettingsSidePanel } from "./SettingsSidePanel.jsx";
 
 const defaultModelFormValues = {
-  name: "DeepSeek Chat",
+  name: "DeepSeek V4 Flash",
   provider: "deepseek",
   modelType: "chat",
   baseUrl: "https://api.deepseek.com",
   apiKey: "",
-  modelName: "deepseek-chat",
+  modelName: "deepseek-v4-flash",
   temperature: "0.7",
   topP: "0.9",
   maxTokens: "4096",

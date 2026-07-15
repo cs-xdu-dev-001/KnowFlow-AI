@@ -1,6 +1,6 @@
 const modelTypeLabel = { chat: "聊天模型", embedding: "向量模型", rerank: "重排模型" };
 const statusText = { available: "可用", unavailable: "不可用", untested: "待检查" };
-const providerNames = { deepseek: "DeepSeek", openai: "OpenAI", siliconflow: "SiliconFlow", zhipu: "智谱 AI", bailian: "百炼", custom: "自定义" };
+const providerNames = { deepseek: "DeepSeek", mimo: "MiMo", openai: "OpenAI", siliconflow: "SiliconFlow", zhipu: "智谱 AI", bailian: "百炼", custom: "自定义" };
 
 export function ModelListPanel({ models = [], busyModelId = null, onModelEdit, onModelTest, onSetDefaultModel, onDeleteModel }) {
   return (
