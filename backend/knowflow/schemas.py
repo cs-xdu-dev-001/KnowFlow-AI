@@ -63,7 +63,7 @@ class ChatRequest(BaseModel):
     autoAgent: bool = True
     enableTools: bool = False
     toolMode: str = "auto"
-    enabledTools: list[str] = []
+    enabledTools: list[str] = Field(default_factory=list)
     attachments: list[ChatAttachment] = []
 
 
