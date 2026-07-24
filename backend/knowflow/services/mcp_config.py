@@ -104,5 +104,11 @@ class McpConfigService:
         if not row: return None
         return row if self.execute_rowcount("DELETE FROM mcp_oauth_session WHERE id=:id AND user_id=:user_id AND state_hash=:state_hash AND expires_at > :now", params) == 1 else None
 
+    def consume_oauth_session_by_state(self, user_id, state_hash):
+        now = self.now_str(); params = {"user_id": user_id, "state_hash": state_hash, "now": now}
+        row = self.fetch_one("SELECT * FROM mcp_oauth_session WHERE user_id=:user_id AND state_hash=:state_hash AND expires_at > :now", params)
+        if not row: return None
+        return row if self.execute_rowcount("DELETE FROM mcp_oauth_session WHERE id=:id AND user_id=:user_id AND state_hash=:state_hash AND expires_at > :now", {**params, "id": row["id"]}) == 1 else None
+
     def delete_expired_oauth_sessions(self, user_id, now=None):
         return self.execute_rowcount("DELETE FROM mcp_oauth_session WHERE user_id=:user_id AND expires_at <= :now", {"user_id": user_id, "now": now or self.now_str()})
