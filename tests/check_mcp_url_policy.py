@@ -1,3 +1,7 @@
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from backend.knowflow.services.mcp_security import validate_remote_url, validate_static_headers
 
 def main():
