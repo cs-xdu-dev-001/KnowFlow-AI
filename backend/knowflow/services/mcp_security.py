@@ -24,6 +24,23 @@ def _addresses(host: str, port: int, resolver: Callable | None) -> list[str]:
         out.append(str(value))
     return out
 
+def resolve_remote_addresses(host: str, port: int, resolver: Callable | None = None, allow_private: bool = False) -> list[str]:
+    if not isinstance(host, str) or not host or not isinstance(port, int) or not (1 <= port <= 65535):
+        raise ValueError("invalid_address")
+    try:
+        addrs = _addresses(host, port, resolver)
+    except Exception as exc:
+        raise ValueError("dns_failure") from exc
+    if not addrs:
+        raise ValueError("dns_failure")
+    result=[]
+    for raw in addrs:
+        try: addr=ipaddress.ip_address(str(raw).split('%',1)[0])
+        except ValueError as exc: raise ValueError("invalid_address") from exc
+        if not allow_private and not addr.is_global: raise ValueError("private_address")
+        result.append(str(raw))
+    return result
+
 def validate_remote_url(url: str, *, resolver: Callable | None = None, allow_private: bool = False) -> str:
     if not isinstance(url, str) or "\r" in url or "\n" in url:
         raise ValueError("invalid_url")
@@ -56,17 +73,7 @@ def validate_remote_url(url: str, *, resolver: Callable | None = None, allow_pri
         port = parts.port or (443 if parts.scheme.lower() == "https" else 80)
     except ValueError as exc:
         raise ValueError("invalid_port") from exc
-    try:
-        addrs = _addresses(host, port, resolver)
-    except Exception as exc:
-        raise ValueError("dns_failure") from exc
-    if not addrs:
-        raise ValueError("dns_failure")
-    for raw in addrs:
-        try: addr = ipaddress.ip_address(raw.split("%", 1)[0])
-        except ValueError as exc: raise ValueError("invalid_address") from exc
-        if not allow_private and not addr.is_global:
-            raise ValueError("private_address")
+    resolve_remote_addresses(host, port, resolver, allow_private)
     return url
 
 def validate_static_headers(headers: dict) -> dict[str, str]:

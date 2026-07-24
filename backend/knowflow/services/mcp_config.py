@@ -17,17 +17,16 @@ class McpConfigService:
         return self.cipher.encrypt(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
 
     def decrypt_credentials(self, value: str | None) -> dict[str, Any]:
-        raw = self.cipher.decrypt(value)
-        if not raw:
-            return {}
         try:
+            raw = self.cipher.decrypt(value)
+            if not raw: return {}
             parsed = json.loads(raw)
             return parsed if isinstance(parsed, dict) else {}
         except Exception:
             return {}
 
     def normalize(self, row: dict[str, Any]) -> dict[str, Any]:
-        return {"id": row["id"], "userId": row["user_id"], "name": row["name"], "slug": row["slug"], "url": row["url"], "authType": row["auth_type"], "enabled": bool(row.get("enabled", 1)), "status": row.get("status") or "disconnected", "configured": bool(row.get("credentials_cipher") and self.cipher.decrypt(row.get("credentials_cipher"))), "tools": self._json(row.get("tools_json"), []), "enabledTools": self._json(row.get("enabled_tools_json"), []), "lastErrorCode": row.get("last_error_code"), "lastConnectedAt": row.get("last_connected_at"), "createdAt": str(row.get("created_at", "")), "updatedAt": str(row.get("updated_at", ""))}
+        return {"id": row["id"], "userId": row["user_id"], "name": row["name"], "slug": row["slug"], "url": row["url"], "authType": row["auth_type"], "enabled": bool(row.get("enabled", 1)), "status": row.get("status") or "disconnected", "configured": bool(self.decrypt_credentials(row.get("credentials_cipher"))), "tools": self._json(row.get("tools_json"), []), "enabledTools": self._json(row.get("enabled_tools_json"), []), "lastErrorCode": row.get("last_error_code"), "lastConnectedAt": row.get("last_connected_at"), "createdAt": str(row.get("created_at", "")), "updatedAt": str(row.get("updated_at", ""))}
 
     @staticmethod
     def _json(value, default):
