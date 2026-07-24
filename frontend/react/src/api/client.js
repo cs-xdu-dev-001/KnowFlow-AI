@@ -99,6 +99,13 @@ export const modelConfigApi = {
   delete: (id) => apiRequest(`/api/model-configs/${id}`, { method: "DELETE" }),
 };
 
+export const toolConfigApi = {
+  list: () => apiRequest("/api/tool-configs"),
+  save: (toolName, payload) => apiRequest(`/api/tool-configs/${toolName}`, { method: "PUT", body: payload }),
+  test: (toolName) => apiRequest(`/api/tool-configs/${toolName}/test`, { method: "POST" }),
+  delete: (toolName) => apiRequest(`/api/tool-configs/${toolName}`, { method: "DELETE" }),
+};
+
 export const runtimeApi = {
   get: () => apiRequest("/api/runtime"),
 };

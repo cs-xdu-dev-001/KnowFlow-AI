@@ -110,15 +110,15 @@ export function createChatFlow({
       question,
       chatModelConfigId,
       useRag: Boolean(knowledgeBaseId),
-      enableTools: false,
-      autoAgent: false,
+      enableTools: true,
+      autoAgent: true,
       toolMode: "auto",
       enabledTools: [],
       attachments: attachments,
     };
     if (retryRequest?.payload) {
-      payload.enableTools = false;
-      payload.autoAgent = false;
+      payload.enableTools = true;
+      payload.autoAgent = true;
       payload.toolMode = "auto";
       payload.enabledTools = [];
     }
