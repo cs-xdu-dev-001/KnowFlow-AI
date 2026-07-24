@@ -15,5 +15,5 @@ assert Version(version('pydantic')) >= Version('2.11'), version('pydantic')
 from knowflow.db_schema import MYSQL_SCHEMA
 for token in ('uk_mcp_server_user_slug','idx_mcp_oauth_user','idx_mcp_oauth_expires'): assert token in MYSQL_SCHEMA
 for column in ('credentials_cipher','tools_json','enabled_tools_json','pkce_verifier_cipher'):
-    assert re.search(r'\\b'+column+r'\\s+LONGTEXT\\b', MYSQL_SCHEMA), column
+    assert re.search(r'\b'+column+r'\s+LONGTEXT\b', MYSQL_SCHEMA), column
 print('MCP schema checks passed')
