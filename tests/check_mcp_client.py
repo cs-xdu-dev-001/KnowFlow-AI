@@ -40,6 +40,22 @@ class T(unittest.TestCase):
   cs=[McpRemoteClient('s','https://x',session_factory=lambda u,h:Fake(),resolver=lambda *a:[(0,0,0,'x',('8.8.8.8',443))])]
   with McpRunSessionPool(server_loader=lambda s:{'id':'s','url':'https://x','name':'N','credentials':{'headers':{'A':'b'}}},client_factory=cf,max_response_bytes=123) as p: p.call_tool('s','echo')
   self.assertEqual(made[0][1]['headers'],{'A':'b'}); self.assertEqual(made[0][1]['max_response_bytes'],123)
+ def test_strict_structured_bytes(self):
+  with self.assertRaises(McpClientError) as e: normalize_result({'structuredContent':{'x':b'bad'}})
+  self.assertEqual(e.exception.code,'mcp_invalid_response'); self.assertNotIn('bad',str(e.exception))
+ def test_empty_name_and_page_limit(self):
+  f=Fake(); f.list_tools=lambda **kw: asyncio.sleep(0,result={'tools':[{'name':'','inputSchema':{}}]}); c=McpRemoteClient('s','https://x',session_factory=lambda u,h:f,resolver=lambda *a:[(0,0,0,'x',('8.8.8.8',443))]); old={'x':1}; c.tool_snapshot=old; self.assertRaises(McpClientError,lambda:asyncio.run(c.discover_tools())); self.assertEqual(c.tool_snapshot,old)
+ def test_factory_close_once(self):
+  class S(Fake):
+   async def aclose(self): self.closed=True
+  s=S(); c=McpRemoteClient('s','https://x',session_factory=lambda u,h:s,resolver=lambda *a:[(0,0,0,'x',('8.8.8.8',443))]); co=asyncio.run(c._connect()); asyncio.run(co.stack.aclose()); asyncio.run(co.http.aclose()); self.assertTrue(s.closed)
+ def test_pool_thread_mismatch(self):
+  import threading
+  p=McpRunSessionPool(server_loader=lambda s:None); out=[]
+  def run():
+   try: p.call_tool('s','x')
+   except Exception as e: out.append(e)
+  t=threading.Thread(target=run); t.start(); t.join(); self.assertTrue(out and isinstance(out[0],McpClientError)); p.close()
  def test_name_and_normalize(self):
   self.assertLessEqual(len(model_tool_name('a'*100,'b'*100)),64)
   x=normalize_result({'content':[{'type':'image','data':'x'}]}); self.assertNotIn('data',str(x)); self.assertIsNone(x['structuredContent'])
