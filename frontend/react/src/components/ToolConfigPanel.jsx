@@ -32,7 +32,7 @@ export function ToolConfigPanel({
             onChange={onChange}
           />
         </label>
-        <label className={"wide"}>
+        <label className={"wide tool-enabled-toggle"}>
           <input
             name={"enabled"}
             type={"checkbox"}

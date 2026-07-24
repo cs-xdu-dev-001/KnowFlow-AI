@@ -56,6 +56,41 @@ def main() -> None:
         "drawer trace view",
     )
     require(
+        "frontend/react/src/components/ChatEvidenceDrawer.jsx",
+        "AgentRunSummary",
+        "drawer live run summary",
+    )
+    require(
+        "frontend/react/src/components/AgentRunSummary.jsx",
+        "当前进度",
+        "run progress metric",
+    )
+    require(
+        "frontend/react/src/components/AgentRunSummary.jsx",
+        "已用时间",
+        "run elapsed metric",
+    )
+    require(
+        "frontend/react/src/components/AgentRunSummary.jsx",
+        "工具调用",
+        "run tool count metric",
+    )
+    require(
+        "frontend/react/src/components/AgentRunSummary.jsx",
+        "setInterval",
+        "live elapsed timer",
+    )
+    require(
+        "frontend/react/src/components/AgentRunSummary.jsx",
+        'step.status === "waiting"',
+        "waiting run status",
+    )
+    require(
+        "frontend/react/src/components/AgentRunSummary.jsx",
+        '"已取消"',
+        "cancelled run status",
+    )
+    require(
         "frontend/react/src/App.jsx",
         "knowflow:react-drawer-open",
         "programmatic drawer open",

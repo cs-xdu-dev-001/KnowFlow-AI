@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { AgentRunSummary } from "./AgentRunSummary.jsx";
 import { AgentTraceView } from "./AgentTraceView.jsx";
 
 const toolLabels = {
@@ -86,37 +87,35 @@ export function ChatEvidenceDrawer() {
   return (
     <aside className={"evidence-drawer"} id={"evidence-drawer"}>
       <div className={"drawer-header"}>
-        <div className={"drawer-heading"}>
-          <h2>{"本次运行"}</h2>
-          <div
-            className={"drawer-tabs"}
-            role={"tablist"}
-            aria-label={"运行详情"}
-          >
-            <button
-              type={"button"}
-              role={"tab"}
-              aria-selected={activeTab === "trace"}
-              aria-controls={"agent-trace-panel"}
-              onClick={() => setActiveTab("trace")}
-            >
-              {"过程"}
-            </button>
-            <button
-              type={"button"}
-              role={"tab"}
-              aria-selected={activeTab === "evidence"}
-              aria-controls={"agent-evidence-panel"}
-              onClick={() => setActiveTab("evidence")}
-            >
-              {"引用"}
-            </button>
-          </div>
-        </div>
+        <AgentRunSummary trace={trace} />
         <button className={"icon-button"} id={"inspector-close"} type={"button"} title={"收起运行面板"} aria-label={"收起运行面板"} onClick={handleDrawerClose}>
           <svg viewBox={"0 0 24 24"} aria-hidden={"true"} focusable={"false"}>
             <path d={"M6 6l12 12M18 6 6 18"} fill={"none"} stroke={"currentColor"} strokeWidth={"2"} strokeLinecap={"round"} />
           </svg>
+        </button>
+      </div>
+      <div
+        className={"drawer-tabs"}
+        role={"tablist"}
+        aria-label={"运行详情"}
+      >
+        <button
+          type={"button"}
+          role={"tab"}
+          aria-selected={activeTab === "trace"}
+          aria-controls={"agent-trace-panel"}
+          onClick={() => setActiveTab("trace")}
+        >
+          {"过程"}
+        </button>
+        <button
+          type={"button"}
+          role={"tab"}
+          aria-selected={activeTab === "evidence"}
+          aria-controls={"agent-evidence-panel"}
+          onClick={() => setActiveTab("evidence")}
+        >
+          {"引用"}
         </button>
       </div>
       {activeTab === "trace" ? (

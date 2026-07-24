@@ -3,12 +3,13 @@ import { AuthScreen } from "./components/AuthScreen.jsx";
 import { Sidebar } from "./components/Sidebar.jsx";
 import { ChatPage } from "./components/ChatPage.jsx";
 import { KnowledgePage } from "./components/KnowledgePage.jsx";
+import { ToolsPage } from "./components/ToolsPage.jsx";
 import { SettingsPage } from "./components/SettingsPage.jsx";
 import { Toast } from "./components/Toast.jsx";
 import { KnowFlowController } from "./components/KnowFlowController.jsx";
 import { useAuth } from "./auth/AuthProvider.jsx";
 
-const pageKeys = new Set(["chat", "knowledge", "settings"]);
+const pageKeys = new Set(["chat", "knowledge", "tools", "settings"]);
 const SIDEBAR_LAYOUT_VERSION = "20260522-chatgpt-sidebar";
 
 function readStoredBoolean(key, defaultValue) {
@@ -121,6 +122,7 @@ function WorkbenchShell() {
           <main className="main-stage" id="main-stage" tabIndex={-1}>
             <ChatPage active={activePage === "chat"} />
             <KnowledgePage active={activePage === "knowledge"} />
+            <ToolsPage active={activePage === "tools"} />
             <SettingsPage active={activePage === "settings"} />
           </main>
         </div>

@@ -8399,3 +8399,324 @@ body.sidebar-collapsed .sidebar .user-menu-button {
     content: "运行";
   }
 }
+
+/* Live run summary: one compact source of truth for progress, elapsed time and tool use. */
+.evidence-drawer {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.evidence-drawer > .drawer-header {
+  position: relative;
+  display: block;
+  padding: 16px 14px 0;
+  border-bottom: 0 !important;
+}
+
+.evidence-drawer > .drawer-header > .icon-button {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+}
+
+.agent-run-summary {
+  min-width: 0;
+}
+
+.agent-run-summary-head {
+  min-height: 40px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-right: 48px;
+}
+
+.agent-run-summary-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.agent-run-summary-head h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 720;
+  line-height: 1.2;
+}
+
+.agent-run-summary-head span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-run-status {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--control-bg);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.agent-run-status.running,
+.agent-run-status.success {
+  background: color-mix(in srgb, var(--success) 11%, var(--surface));
+  color: color-mix(in srgb, var(--success) 78%, var(--text));
+}
+
+.agent-run-status.failed {
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  color: var(--danger);
+}
+
+.agent-run-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 12px -14px 0;
+  border-top: 1px solid var(--control-border);
+  border-bottom: 1px solid var(--control-border);
+}
+
+.agent-run-metrics > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.agent-run-metrics > div + div {
+  border-left: 1px solid var(--control-border);
+}
+
+.agent-run-metrics span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-run-metrics strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.evidence-drawer > .drawer-tabs {
+  margin: 10px 14px;
+}
+
+/* Tools and MCP page: real tool inventory now, a clear MCP landing zone later. */
+#page-tools .workspace-page {
+  min-height: 100vh;
+  margin: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--workspace-bg) !important;
+  box-shadow: none !important;
+  overflow: visible;
+}
+
+.tools-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.62fr);
+  grid-template-areas:
+    "overview overview"
+    "config inventory"
+    "config mcp";
+  align-items: start;
+  gap: 14px;
+  padding: 18px 24px 24px;
+}
+
+.tools-overview {
+  grid-area: overview;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--control-border);
+  border-radius: 10px;
+  background: var(--panel-bg);
+}
+
+.tools-overview > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 13px 16px;
+}
+
+.tools-overview > div + div {
+  border-left: 1px solid var(--control-border);
+}
+
+.tools-overview span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tools-overview strong {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 740;
+  font-variant-numeric: tabular-nums;
+}
+
+#page-tools #tool-config-form {
+  grid-area: config;
+  margin: 0;
+}
+
+#page-tools .tool-enabled-toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+}
+
+#page-tools .tool-enabled-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.tool-inventory {
+  grid-area: inventory;
+}
+
+.mcp-panel {
+  grid-area: mcp;
+}
+
+.tool-inventory-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid var(--control-border);
+  border-radius: 9px;
+  background: var(--control-bg);
+}
+
+.tool-inventory-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--inverse-bg);
+  color: var(--inverse-text);
+  font-size: 21px;
+  line-height: 1;
+}
+
+.tool-inventory-row > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.tool-inventory-row > div strong {
+  overflow: hidden;
+  color: var(--text);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-inventory-row > div span,
+.mcp-empty span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.tool-state {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.tool-state.enabled {
+  background: color-mix(in srgb, var(--success) 11%, var(--surface));
+  color: color-mix(in srgb, var(--success) 78%, var(--text));
+}
+
+.mcp-empty {
+  min-height: 96px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 14px;
+  border: 1px dashed var(--control-border);
+  border-radius: 9px;
+  background: var(--control-bg);
+}
+
+.mcp-empty strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 680;
+}
+
+@media (max-width: 900px) {
+  .tools-content {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "overview"
+      "inventory"
+      "config"
+      "mcp";
+  }
+}
+
+@media (max-width: 760px) {
+  #page-tools .workspace-page {
+    min-height: 100%;
+    padding: 0 16px 24px;
+  }
+
+  .tools-content {
+    gap: 12px;
+    padding: 14px 0 0;
+  }
+
+  .tools-overview > div {
+    padding: 11px 12px;
+  }
+
+  .evidence-drawer > .drawer-header {
+    padding: 14px 12px 0;
+  }
+
+  .agent-run-metrics {
+    margin-inline: -12px;
+  }
+
+  .agent-run-metrics > div {
+    padding-inline: 9px;
+  }
+
+  .evidence-drawer > .drawer-tabs {
+    margin-inline: 12px;
+  }
+}

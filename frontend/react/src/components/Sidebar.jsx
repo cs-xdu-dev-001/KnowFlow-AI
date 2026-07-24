@@ -48,6 +48,17 @@ function SessionMenuIcon({ type }) {
 }
 
 function SidebarToolIcon({ type }) {
+  if (type === "tools") {
+    return (
+      <svg aria-hidden={"true"} viewBox={"0 0 24 24"} focusable={"false"}>
+        <circle cx={"6"} cy={"6"} r={"2"} />
+        <circle cx={"18"} cy={"6"} r={"2"} />
+        <circle cx={"12"} cy={"18"} r={"2"} />
+        <path d={"M8 6h8M7.4 7.5l3.6 8.7M16.6 7.5 13 16.2"} />
+      </svg>
+    );
+  }
+
   if (type === "settings") {
     return (
       <svg aria-hidden={"true"} viewBox={"0 0 24 24"} focusable={"false"}>

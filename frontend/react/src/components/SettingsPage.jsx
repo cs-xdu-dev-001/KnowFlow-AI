@@ -1,12 +1,11 @@
 import { notifyError, notifyToast } from "./errorFeedback.js";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { modelConfigApi, toolConfigApi } from "../api/client.js";
+import { modelConfigApi } from "../api/client.js";
 import { providerPresets } from "../data/settings.js";
 import { ModelConfigForm } from "./ModelConfigForm.jsx";
 import { ModelListPanel } from "./ModelListPanel.jsx";
 import { SettingsHeader } from "./SettingsHeader.jsx";
 import { SettingsSidePanel } from "./SettingsSidePanel.jsx";
-import { ToolConfigPanel } from "./ToolConfigPanel.jsx";
 
 const defaultModelFormValues = {
   name: "DeepSeek V4 Flash",
@@ -104,9 +103,6 @@ export function SettingsPage({ active = false }) {
   const [selectedPresetValue, setSelectedPresetValue] = useState("deepseek:0");
   const [selectedProvider, setSelectedProvider] = useState("deepseek");
   const [submitting, setSubmitting] = useState(false);
-  const [toolBusy, setToolBusy] = useState(false);
-  const [toolValues, setToolValues] = useState({ enabled: false, apiKey: "" });
-  const [webSearchConfig, setWebSearchConfig] = useState(null);
 
   const loadModels = useCallback(async () => {
     try {
@@ -117,21 +113,9 @@ export function SettingsPage({ active = false }) {
     }
   }, []);
 
-  const loadToolConfigs = useCallback(async () => {
-    try {
-      const configs = await toolConfigApi.list();
-      const webSearch = (Array.isArray(configs) ? configs : []).find((item) => item.toolName === "web_search") || null;
-      setWebSearchConfig(webSearch);
-      setToolValues({ enabled: Boolean(webSearch?.enabled), apiKey: "" });
-    } catch (error) {
-      notifyError(error, "加载工具配置失败");
-    }
-  }, []);
-
   useEffect(() => {
     loadModels();
-    loadToolConfigs();
-  }, [loadModels, loadToolConfigs]);
+  }, [loadModels]);
 
   const normalizedProvider = useMemo(() => normalizeProvider(selectedProvider), [selectedProvider]);
 
@@ -250,58 +234,6 @@ export function SettingsPage({ active = false }) {
     }
   };
 
-  const handleToolChange = (event) => {
-    const { checked, name, type, value } = event.target;
-    setToolValues((currentValues) => ({
-      ...currentValues,
-      [name]: type === "checkbox" ? checked : value,
-    }));
-  };
-
-  const handleToolSubmit = async (event) => {
-    event.preventDefault();
-    setToolBusy(true);
-    try {
-      const apiKey = toolValues.apiKey.trim();
-      const payload = { enabled: toolValues.enabled };
-      if (apiKey) payload.apiKey = apiKey;
-      const saved = await toolConfigApi.save("web_search", payload);
-      setWebSearchConfig(saved);
-      setToolValues({ enabled: Boolean(saved?.enabled), apiKey: "" });
-      notifyToast("联网搜索配置已保存");
-    } catch (error) {
-      notifyError(error, "保存工具配置失败");
-    } finally {
-      setToolBusy(false);
-    }
-  };
-
-  const handleToolTest = async () => {
-    setToolBusy(true);
-    try {
-      const result = await toolConfigApi.test("web_search");
-      notifyToast(result?.message || "Tavily连接检查完成");
-    } catch (error) {
-      notifyError(error, "检查Tavily连接失败");
-    } finally {
-      setToolBusy(false);
-    }
-  };
-
-  const handleToolDelete = async () => {
-    setToolBusy(true);
-    try {
-      await toolConfigApi.delete("web_search");
-      setWebSearchConfig(null);
-      setToolValues({ enabled: false, apiKey: "" });
-      notifyToast("联网搜索配置已清除");
-    } catch (error) {
-      notifyError(error, "清除工具配置失败");
-    } finally {
-      setToolBusy(false);
-    }
-  };
-
   return (
     <section className={active ? "page active" : "page"} id={"page-settings"}>
       <div className={"workspace-page"}>
@@ -327,15 +259,6 @@ export function SettingsPage({ active = false }) {
               onModelEdit={handleModelEdit}
               onModelTest={handleModelTest}
               onSetDefaultModel={handleSetDefaultModel}
-            />
-            <ToolConfigPanel
-              busy={toolBusy}
-              config={webSearchConfig}
-              values={toolValues}
-              onChange={handleToolChange}
-              onDelete={handleToolDelete}
-              onSubmit={handleToolSubmit}
-              onTest={handleToolTest}
             />
           </section>
           <SettingsSidePanel />
