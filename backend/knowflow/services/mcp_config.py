@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 from typing import Any
 
 MCP_MAX_EXPOSED_TOOLS = 32
@@ -63,7 +64,12 @@ class McpConfigService:
         self.execute("UPDATE mcp_server SET credentials_cipher=:credentials_cipher, updated_at=:updated_at WHERE id=:id AND user_id=:user_id", {"credentials_cipher": self.encrypt_credentials(credentials), "updated_at": self.now_str(), "id": server_id, "user_id": user_id}); return self.get_owned(user_id, server_id)
 
     def secret(self, user_id, server_id):
-        r = self._row(user_id, server_id); return {**r, "credentials": self.decrypt_credentials(r.get("credentials_cipher"))} if r else None
+        r = self._row(user_id, server_id)
+        if not r:
+            return None
+        result = {k: v for k, v in r.items() if k != "credentials_cipher"}
+        result["credentials"] = self.decrypt_credentials(r.get("credentials_cipher"))
+        return result
 
     def save_tool_snapshot(self, user_id, server_id, tools):
         r = self._row(user_id, server_id); old = self._json(r.get("enabled_tools_json"), None) if r else None; names = [t.get("name", t) if isinstance(t, dict) else t for t in tools]; enabled = old if old is not None else (names if len(names) <= MCP_MAX_EXPOSED_TOOLS else []); enabled = [n for n in enabled if n in names]
@@ -73,10 +79,14 @@ class McpConfigService:
         self.execute("UPDATE mcp_server SET status=:status,last_error_code=:error_code,updated_at=:updated_at WHERE id=:id AND user_id=:user_id", {"status": status, "error_code": error_code, "updated_at": self.now_str(), "id": server_id, "user_id": user_id}); return self.get_owned(user_id, server_id)
 
     def create_oauth_session(self, user_id, server_id, *, state_hash, pkce_verifier_cipher, return_to, expires_at):
+        if not self._row(user_id, server_id):
+            raise ValueError("MCP server does not belong to user")
         now = self.now_str()
+        session_id = secrets.token_urlsafe(32)
         self.execute(
-            "INSERT INTO mcp_oauth_session(user_id,server_id,state_hash,pkce_verifier_cipher,return_to,expires_at,created_at) VALUES (:user_id,:server_id,:state_hash,:pkce_verifier_cipher,:return_to,:expires_at,:created_at)",
+            "INSERT INTO mcp_oauth_session(id,user_id,server_id,state_hash,pkce_verifier_cipher,return_to,expires_at,created_at) VALUES (:id,:user_id,:server_id,:state_hash,:pkce_verifier_cipher,:return_to,:expires_at,:created_at)",
             {
+                "id": session_id,
                 "user_id": user_id,
                 "server_id": server_id,
                 "state_hash": state_hash,
@@ -86,12 +96,14 @@ class McpConfigService:
                 "created_at": now,
             },
         )
-        return self.fetch_one("SELECT * FROM mcp_oauth_session WHERE user_id=:user_id AND server_id=:server_id AND state_hash=:state_hash ORDER BY id DESC", {"user_id":user_id,"server_id":server_id,"state_hash":state_hash})
+        return self.fetch_one("SELECT * FROM mcp_oauth_session WHERE id=:id", {"id": session_id})
 
     def consume_oauth_session(self, user_id, session_id, state_hash):
-        row=self.fetch_one("SELECT * FROM mcp_oauth_session WHERE id=:id AND user_id=:user_id AND state_hash=:state_hash", {"id":session_id,"user_id":user_id,"state_hash":state_hash})
+        now = self.now_str()
+        params = {"id":session_id,"user_id":user_id,"state_hash":state_hash,"now":now}
+        row=self.fetch_one("SELECT * FROM mcp_oauth_session WHERE id=:id AND user_id=:user_id AND state_hash=:state_hash AND expires_at > :now", params)
         if not row: return None
-        return row if self.execute_rowcount("DELETE FROM mcp_oauth_session WHERE id=:id AND user_id=:user_id AND state_hash=:state_hash", {"id":session_id,"user_id":user_id,"state_hash":state_hash}) == 1 else None
+        return row if self.execute_rowcount("DELETE FROM mcp_oauth_session WHERE id=:id AND user_id=:user_id AND state_hash=:state_hash AND expires_at > :now", params) == 1 else None
 
     def delete_expired_oauth_sessions(self, user_id, now=None):
-        return self.execute_rowcount("DELETE FROM mcp_oauth_session WHERE user_id=:user_id AND expires_at < :now", {"user_id": user_id, "now": now or self.now_str()})
+        return self.execute_rowcount("DELETE FROM mcp_oauth_session WHERE user_id=:user_id AND expires_at <= :now", {"user_id": user_id, "now": now or self.now_str()})
