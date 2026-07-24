@@ -56,7 +56,11 @@ def update(server_id:int,payload:McpServerUpdate,request:Request):
  fields={k.replace('authType','auth_type'):v for k,v in d.items() if k in ('name','url','authType','enabled')}; mcp_configs.update_server(user,server_id,**fields)
  if headers is not None or payload.clientId or payload.clientSecret:
   old=(mcp_configs.secret(user,server_id) or {}).get('credentials') or {}; old.update({'headers':headers} if headers is not None else {}); old.update({'client_id':payload.clientId} if payload.clientId else {}); old.update({'client_secret':payload.clientSecret} if payload.clientSecret else {}); mcp_configs.save_credentials(user,server_id,old)
- if en is not None: mcp_configs.set_enabled_tools(user,server_id,en)
+ if en is not None:
+  names={t.get('name',t) if isinstance(t,dict) else t for t in (s.get('tools') or [])}
+  vals=list(dict.fromkeys(en))
+  if len(vals)>MCP_MAX_EXPOSED_TOOLS or any(x not in names for x in vals): raise HTTPException(400,'Invalid enabled tools')
+  mcp_configs.set_enabled_tools(user,server_id,vals)
  return api_success(mcp_configs.get_owned(user,server_id))
 @router.delete('/api/mcp/servers/{server_id}')
 def delete(server_id:int,request:Request):
@@ -78,19 +82,19 @@ def refresh(server_id:int,request:Request):
  user=uid(request); s=owned(request,server_id)
  try: tools=discover(user,s)
  except Exception: mcp_configs.set_status(user,server_id,'error',error_code='mcp_discovery_failed'); raise HTTPException(502,'MCP connection failed')
- return api_success(mcp_configs.save_tool_snapshot(user,server_id,tools))
+ mcp_configs.save_tool_snapshot(user,server_id,tools); return api_success(mcp_configs.set_status(user,server_id,'connected'))
 @router.post('/api/mcp/servers/{server_id}/oauth/start')
 def oauth_start(server_id:int,payload:McpOAuthStartIn,request:Request):
  user=uid(request); owned(request,server_id)
  if not is_allowed_oauth_return_url(payload.returnTo): raise HTTPException(400,'Invalid return URL')
  try:r=mcp_oauth.start_authorization(user,server_id,payload.returnTo)
  except Exception: raise HTTPException(502,'OAuth unavailable')
- return RedirectResponse(r['authorization_url'])
+ return api_success({'authorizationUrl':r.get('authorizationUrl') or r.get('authorization_url')})
 @router.get('/api/mcp/oauth/callback')
 def oauth_callback(state:str,request:Request,code:str|None=None,error:str|None=None):
- user=getattr(request.state,'current_user',None)
+ user=get_current_user(request)
  if not user: raise HTTPException(401,'Please sign in first.')
  try:r=mcp_oauth.complete_authorization(int(user['id']),state,code,error)
  except Exception: raise HTTPException(400,'Invalid OAuth state')
- target=r.get('return_to','/') if isinstance(r,dict) else '/'
- return RedirectResponse(target if is_allowed_oauth_return_url(target) else '/')
+ target=(r.get('returnTo') or r.get('return_to') or BASE_URL) if isinstance(r,dict) else BASE_URL
+ return RedirectResponse(target if is_allowed_oauth_return_url(target) else BASE_URL)

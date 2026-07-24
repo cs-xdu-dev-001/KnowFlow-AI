@@ -479,10 +479,10 @@ class McpOAuthCoordinator:
             session["server_id"],
             "connected",
         )
-        return self.configs.get_owned(
-            user_id,
-            session["server_id"],
-        )
+        result = self.configs.get_owned(user_id, session["server_id"])
+        if result is not None:
+            result["returnTo"] = session.get("return_to")
+        return result
 
     def _server(
         self,

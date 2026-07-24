@@ -115,8 +115,6 @@ class McpServerCreate(BaseModel):
 
 class McpServerUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
-    url: str | None = Field(default=None, min_length=1, max_length=500)
-    authType: Literal["none", "headers", "oauth"] | None = None
     headers: dict[str, str] | None = None
     clientId: str | None = None
     clientSecret: str | None = None
