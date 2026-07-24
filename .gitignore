@@ -34,6 +34,7 @@ logs/
 
 # Internal planning notes
 docs/superpowers/
+.superpowers/
 .tmp-test/
 data/test-dbs/
 frontend/react/public/vendor/
