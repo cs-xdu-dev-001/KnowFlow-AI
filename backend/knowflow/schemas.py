@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Literal
 
 from .config import DEFAULT_TOP_K
@@ -103,25 +103,28 @@ class LoginIn(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 class McpServerCreate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     preset: str | None = None
     name: str | None = Field(default=None, min_length=1, max_length=100)
     url: str | None = Field(default=None, max_length=500)
     authType: Literal["none", "headers", "oauth"] = "none"
     headers: dict[str, str] | None = None
-    clientId: str | None = None
-    clientSecret: str | None = None
+    clientId: str | None = Field(default=None, max_length=255)
+    clientSecret: str | None = Field(default=None, max_length=2048)
     enabled: bool = True
-    enabledTools: list[str] = []
+    enabledTools: list[str] = Field(default_factory=list)
 
 class McpServerUpdate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     name: str | None = Field(default=None, min_length=1, max_length=120)
     headers: dict[str, str] | None = None
-    clientId: str | None = None
-    clientSecret: str | None = None
+    clientId: str | None = Field(default=None, max_length=255)
+    clientSecret: str | None = Field(default=None, max_length=2048)
     enabled: bool | None = None
     enabledTools: list[str] | None = None
 
 class McpOAuthStartIn(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     returnTo: str = Field(min_length=1, max_length=500)
 
 McpServerIn = McpServerCreate

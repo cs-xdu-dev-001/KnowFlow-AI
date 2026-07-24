@@ -46,16 +46,24 @@ def create(payload:McpServerCreate,request:Request):
  return api_success(mcp_configs.get_owned(user,x['id']))
 @router.patch('/api/mcp/servers/{server_id}')
 def update(server_id:int,payload:McpServerUpdate,request:Request):
- user=uid(request); s=owned(request,server_id); d=payload.model_dump(exclude_none=True); headers=d.pop('headers',None); en=d.pop('enabledTools',None); d.pop('clientId',None); d.pop('clientSecret',None)
- if 'url' in d:
-  try:d['url']=validate_remote_url(d['url'])
-  except Exception as e: raise HTTPException(400,str(e))
+ user=uid(request); s=owned(request,server_id); supplied=payload.model_fields_set; d=payload.model_dump(exclude_none=True); headers=payload.headers if 'headers' in supplied else None; en=d.pop('enabledTools',None); d.pop('clientId',None); d.pop('clientSecret',None)
  if headers is not None:
   try: validate_static_headers(headers)
   except Exception as e: raise HTTPException(400,str(e))
  fields={k.replace('authType','auth_type'):v for k,v in d.items() if k in ('name','url','authType','enabled')}; mcp_configs.update_server(user,server_id,**fields)
- if headers is not None or payload.clientId or payload.clientSecret:
-  old=(mcp_configs.secret(user,server_id) or {}).get('credentials') or {}; old.update({'headers':headers} if headers is not None else {}); old.update({'client_id':payload.clientId} if payload.clientId else {}); old.update({'client_secret':payload.clientSecret} if payload.clientSecret else {}); mcp_configs.save_credentials(user,server_id,old)
+ cred_changed=bool({'headers','clientId','clientSecret'} & supplied)
+ if cred_changed:
+  old=(mcp_configs.secret(user,server_id) or {}).get('credentials') or {}
+  if 'headers' in supplied:
+   if headers: old['headers']=headers
+   else: old.pop('headers',None)
+  if 'clientId' in supplied:
+   if payload.clientId: old['client_id']=payload.clientId
+   else: old.pop('client_id',None)
+  if 'clientSecret' in supplied:
+   if payload.clientSecret: old['client_secret']=payload.clientSecret
+   else: old.pop('client_secret',None)
+  mcp_configs.clear_credentials(user,server_id) if not old else mcp_configs.save_credentials(user,server_id,old)
  if en is not None:
   names={t.get('name',t) if isinstance(t,dict) else t for t in (s.get('tools') or [])}
   vals=list(dict.fromkeys(en))
