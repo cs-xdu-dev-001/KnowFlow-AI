@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, text
 
 from .db_schema import MYSQL_SCHEMA, SQLITE_SCHEMA
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 
 class Database:
@@ -60,6 +60,6 @@ class Database:
             ),
             {
                 "version": CURRENT_SCHEMA_VERSION,
-                "description": "Initial KnowFlow schema with auth, knowledge bases, documents, chat, and retrieval quality tracking.",
+                "description": "Add encrypted per-user tool configuration for agent tools.",
             },
         )

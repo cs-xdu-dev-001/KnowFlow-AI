@@ -111,6 +111,17 @@ CREATE TABLE IF NOT EXISTS agent_tool_call (
   latency_ms INTEGER,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS tool_config (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  tool_name TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  api_key_cipher TEXT,
+  enabled INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (user_id, tool_name)
+);
 CREATE TABLE IF NOT EXISTS sync_task (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER,
@@ -297,6 +308,17 @@ CREATE TABLE IF NOT EXISTS agent_tool_call (
   latency_ms INT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   KEY idx_tool_session_time (session_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS tool_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  tool_name VARCHAR(100) NOT NULL,
+  provider VARCHAR(50) NOT NULL,
+  api_key_cipher TEXT,
+  enabled TINYINT DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_tool_config_user_name (user_id, tool_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE IF NOT EXISTS sync_task (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
