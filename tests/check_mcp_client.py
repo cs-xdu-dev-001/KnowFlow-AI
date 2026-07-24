@@ -2,6 +2,7 @@ import asyncio,sys,unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).parents[1]/'backend'))
 from knowflow.services.mcp_client import *
+from knowflow.services.mcp_client import _PinnedTransport
 
 class Fake:
  def __init__(self): self.init=0; self.calls=0; self.closed=False
@@ -68,7 +69,9 @@ class T(unittest.TestCase):
   def res(h,p): n[0]+=1; return ['93.184.216.34'] if n[0]==1 else ['10.0.0.1']
   tr=_PinnedTransport(d,res); req=httpx.Request('GET','https://example.com'); asyncio.run(tr.handle_async_request(req)); self.assertRaises(ValueError,asyncio.run,tr.handle_async_request(req)); self.assertFalse(d.called)
  def test_cursor_page_limit(self):
-  f=Fake(); f.list_tools=lambda **kw: asyncio.sleep(0,result={'tools':[],'nextCursor':'x'}); c=McpRemoteClient('s','https://x',session_factory=lambda u,h:f,resolver=lambda *a:[(0,0,0,'x',('8.8.8.8',443))]); self.assertRaises(McpClientError,lambda:asyncio.run(c.discover_tools()))
+  f=Fake(); f.i=0
+  async def lt(**kw): f.i+=1; return {'tools':[],'nextCursor':str(f.i)}
+  f.list_tools=lt; c=McpRemoteClient('s','https://x',session_factory=lambda u,h:f,resolver=lambda *a:[(0,0,0,'x',('8.8.8.8',443))]); self.assertRaises(McpClientError,lambda:asyncio.run(c.discover_tools()))
  def test_invalidate_reconnect(self):
   fs=[Fake(),Fake()]; i=[0]
   def load(s): x=fs[i[0]]; i[0]+=1; return McpRemoteClient('s','https://x',session_factory=lambda u,h,f=x:f,resolver=lambda *a:[(0,0,0,'x',('8.8.8.8',443))])
