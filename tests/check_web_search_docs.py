@@ -60,8 +60,8 @@ def main() -> None:
         "per-user tool key startup guidance",
     )
     for forbidden in [
-        "KNOWFLOW_TAVILY_API_KEY=",
-        "tvly-alice-secret",
+        "KNOWFLOW_" + "TAVILY_" + "API_KEY=",
+        "tvly-" + "alice-secret",
     ]:
         forbid(
             env_example + readme + start_dev,

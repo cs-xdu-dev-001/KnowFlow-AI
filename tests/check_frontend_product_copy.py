@@ -124,7 +124,7 @@ def main() -> None:
 
     require("frontend/react/src/components/ChatTopbar.jsx", "问答", "short chat title")
     require("frontend/react/src/components/KnowledgeHeader.jsx", "知识库", "short knowledge title")
-    require("frontend/react/src/components/SettingsHeader.jsx", "模型", "short settings title")
+    require("frontend/react/src/components/SettingsHeader.jsx", "设置", "short settings title")
     require("frontend/react/src/components/KnowledgeDocuments.jsx", "添加文档", "short upload action")
     require("frontend/react/src/components/KnowledgeRetrievalDrawer.jsx", "暂无结果", "short retrieval empty state")
     require("frontend/react/src/components/ModelListPanel.jsx", "暂无配置", "short model empty state")
