@@ -14,6 +14,8 @@ set "KNOWFLOW_BASE_URL=%VITE_BACKEND_URL%"
 set "KNOWFLOW_FRONTEND_ORIGIN=http://%KNOWFLOW_FRONTEND_HOST%:%KNOWFLOW_FRONTEND_PORT%"
 set "KNOWFLOW_OAUTH_RETURN_ORIGINS=%KNOWFLOW_FRONTEND_ORIGIN%"
 
+rem Tool API keys are configured per user in Settings and are never loaded from this script.
+
 if not exist "%BACKEND_DIR%\main.py" (
   echo [KnowFlow] Backend directory not found: "%BACKEND_DIR%"
   exit /b 1

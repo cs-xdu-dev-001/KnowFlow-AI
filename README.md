@@ -16,6 +16,8 @@ The project is built with a FastAPI backend and a React + Vite frontend. It is d
 - RAG debugging with retrieved chunks, scores, matched terms, and retrieval quality metadata.
 - Retrieval run tracking through the `retrieval_run` table and detail API.
 - Chat interface with references, evidence drawer, and session history.
+- Native model-controlled `web_search` with a per-user Tavily key.
+- Live, replayable Agent execution traces with sanitized public inputs and results.
 - FastAPI Swagger UI, ReDoc, and OpenAPI JSON documentation.
 
 ## Tech Stack
@@ -177,6 +179,8 @@ Copy `backend/.env.example` to `backend/.env` and update values as needed.
 | `KNOWFLOW_DB_URL` | SQLAlchemy database URL | `sqlite:///./data/knowflow.db` |
 | `KNOWFLOW_UPLOAD_DIR` | Uploaded document storage directory | `./data/uploads` |
 | `KNOWFLOW_SECRET_KEY` | Key used to encrypt stored model API keys | `change-this-dev-secret` |
+| `KNOWFLOW_WEB_SEARCH_TIMEOUT` | Tavily request timeout in seconds | `15` |
+| `KNOWFLOW_WEB_SEARCH_MAX_RESULTS` | Maximum normalized results returned to the model | `5` |
 | `KNOWFLOW_BASE_URL` | Public backend URL, used by OAuth callbacks | `http://127.0.0.1:8010` |
 | `KNOWFLOW_OAUTH_RETURN_ORIGINS` | Exact frontend origins allowed after OAuth login | `http://127.0.0.1:5173,http://localhost:5173` |
 | `KNOWFLOW_VECTOR_BACKEND` | `local` or `chroma` | `local` |
@@ -189,6 +193,16 @@ Copy `backend/.env.example` to `backend/.env` and update values as needed.
 | `KNOWFLOW_RAG_SCORE_THRESHOLD` | Retrieval quality threshold | `0.25` |
 
 Do not commit `backend/.env`. The repository `.gitignore` excludes local environment files, runtime databases, uploads, logs, browser test profiles, and build output.
+
+## Agent Tools and Traces
+
+Each signed-in user configures their own Tavily key in the 设置页. The backend encrypts it in `tool_config`, never returns the plaintext key, and does not load a global Tavily key from the environment or startup script. The connection check uses one Tavily credit.
+
+`web_search` is a native OpenAI-compatible function tool. KnowFlow sends its schema through `tools` only when the current user has enabled a valid configuration, then uses `tool_choice: auto` so the model decides whether the question needs current or external information. Ordinary questions are not forced to search. Tavily is the first search provider and is called through its HTTP API, without a provider SDK.
+
+Agent progress is emitted as sanitized SSE events. The chat message shows the current step, while the right-side Agent运行图 displays the full nested `model`, `tool`, `mcp`, `skill`, `agent`, `system`, and `approval` protocol. It exposes only bounded public input and result summaries, never hidden chain-of-thought, system prompts, credentials, or raw request logs.
+
+The completed Trace snapshot is stored with the assistant message. Reopening a session restores the same execution view, including completed and failed states.
 
 ## Auth Mode / Authentication
 
@@ -311,6 +325,7 @@ The second command should not show tracked local secrets, databases, dependency 
 ## Security Notes
 
 - Change `KNOWFLOW_SECRET_KEY` before storing real API keys.
+- Treat stored model and tool keys as production credentials even though they are encrypted at rest.
 - Keep `backend/.env` local.
 - Use HTTPS and set `KNOWFLOW_COOKIE_SECURE=1` when deploying behind a real domain.
 - Review OAuth callback URLs before publishing a deployment.
