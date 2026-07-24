@@ -1,4 +1,6 @@
-import json, sqlite3
+import json, sqlite3, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from cryptography.fernet import Fernet
 from backend.knowflow.services.mcp_config import McpConfigService
 
@@ -24,7 +26,7 @@ assert a['id']!=b['id'] and s.get_owned(1,b['id']) is None
 s.save_credentials(1,a['id'],{'access_token':'unit-access','refresh_token':'unit-refresh'})
 raw=one('select credentials_cipher from mcp_server where id=1'); assert 'unit-access' not in raw['credentials_cipher']; assert s.get_owned(1,a['id'])['configured']; assert s.secret(1,a['id'])['credentials']['access_token']=='unit-access'
 s.save_tool_snapshot(1,a['id'],[{'name':'a'},{'name':'b'}]); assert s.get_owned(1,a['id'])['enabledTools']==['a','b']
-s.save_tool_snapshot(1,a['id'],[{'name':'b'},{'name':'c'}]); assert s.get_owned(1,a['id'])['enabledTools']==['a'] or s.get_owned(1,a['id'])['enabledTools']==[]
+s.save_tool_snapshot(1,a['id'],[{'name':'b'},{'name':'c'}]); assert s.get_owned(1,a['id'])['enabledTools']==['b']
 sid=s.create_oauth_session(1,a['id'],state_hash='h',pkce_verifier_cipher='p',return_to='/',expires_at='2099-01-01')['id']; assert s.consume_oauth_session(1,sid,'h'); assert s.consume_oauth_session(1,sid,'h') is None
 s.delete_server(1,a['id']); assert s.get_owned(1,a['id']) is None
 print('mcp config checks passed')
