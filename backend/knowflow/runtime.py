@@ -815,7 +815,12 @@ def build_messages(
         system = identity_rule + " You may use conversation history and uploaded files, but do not pretend that you searched a knowledge base."
         user = f"Conversation history:\n{history_text or 'None'}\n\nUploaded files:\n{attachment_text or 'None'}\n\nUser question: {question}"
     if agent_mode:
-        system += " This answer is tool-augmented, so briefly mention the evidence or tools used."
+        system += (
+            " Use available tools only when they are needed. "
+            "For time-sensitive or external facts, use web_search instead of guessing. "
+            "When web results are used, cite their original URLs as Markdown links. "
+            "Never claim that a search ran unless a tool result is present."
+        )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
@@ -944,8 +949,13 @@ def log_tool_call(
     status: str = "success",
     error_message: str | None = None,
     started_at: float | None = None,
+    latency_ms: int | None = None,
 ) -> dict[str, Any]:
-    latency_ms = int((time.time() - (started_at or time.time())) * 1000)
+    latency_value = (
+        latency_ms
+        if latency_ms is not None
+        else int((time.time() - (started_at or time.time())) * 1000)
+    )
     tool_id = execute(
         """
         INSERT INTO agent_tool_call(
@@ -965,7 +975,7 @@ def log_tool_call(
             "output_text": output_text,
             "status": status,
             "error_message": error_message,
-            "latency_ms": latency_ms,
+            "latency_ms": latency_value,
             "created_at": now_str(),
         },
     )
@@ -973,8 +983,10 @@ def log_tool_call(
         "id": tool_id,
         "toolName": tool_name,
         "status": status,
-        "latencyMs": latency_ms,
+        "latencyMs": latency_value,
+        "inputJson": input_payload,
         "outputText": output_text,
+        "errorMessage": error_message,
     }
 
 

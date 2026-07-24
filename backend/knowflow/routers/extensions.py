@@ -1,6 +1,10 @@
+import json
+
 from fastapi import APIRouter
 
 from ..runtime import *
+from ..services.agent_loop import AgentRunner, ToolRegistry
+from ..services.web_search import TavilyWebSearch, WebSearchArguments
 
 router = APIRouter()
 
@@ -17,70 +21,164 @@ def _contains_any(text_value: str, keywords: list[str]) -> bool:
     return any(keyword in text_value for keyword in keywords)
 
 
+def make_web_search_provider(api_key: str) -> TavilyWebSearch:
+    return TavilyWebSearch(
+        api_key=api_key,
+        post_json=post_model_json,
+        timeout=WEB_SEARCH_TIMEOUT,
+        max_results=WEB_SEARCH_MAX_RESULTS,
+    )
+
+
+def build_tool_registry(user_id: int, enable_tools: bool) -> ToolRegistry:
+    registry = ToolRegistry()
+    config = (
+        tool_configs.secret(
+            user_id,
+            "web_search",
+            require_enabled=True,
+        )
+        if enable_tools
+        else None
+    )
+    if not config:
+        return registry
+    provider = make_web_search_provider(config["api_key"])
+    registry.register(
+        name="web_search",
+        description=(
+            "Search the public web for current or external information "
+            "and return source URLs."
+        ),
+        arguments_model=WebSearchArguments,
+        handler=lambda args: {
+            "results": provider.search(args.query, args.top_k)
+        },
+        read_only=True,
+    )
+    return registry
+
+
 @router.post("/api/agent/chat", tags=EXTENSION_TAGS, summary="Reserved agent chat endpoint")
 def agent_chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     user_id = current_user_id(request)
-    if payload.useRag and not payload.knowledgeBaseId:
+    use_rag = bool(payload.knowledgeBaseId) or payload.useRag
+    if use_rag and not payload.knowledgeBaseId:
         raise HTTPException(status_code=400, detail="knowledgeBaseId is required when RAG is enabled")
     if payload.knowledgeBaseId:
         get_kb(payload.knowledgeBaseId, user_id)
     session_id = ensure_session(payload.sessionId, payload.knowledgeBaseId, payload.chatModelConfigId, user_id)
     save_message(session_id, "user", payload.question)
-    calls: list[dict[str, Any]] = []
-    tool_mode = (payload.toolMode or "auto").lower()
-    manual = tool_mode == "manual"
-    enabled_tools = set(payload.enabledTools or [])
-
-    def run_tool(name: str, auto_condition: bool = True) -> bool:
-        return name in enabled_tools if manual else auto_condition
-
-    chunks: list[dict[str, Any]] = []
-    if run_tool("knowledge_search", bool(payload.knowledgeBaseId)):
-        started = time.time()
-        if payload.knowledgeBaseId:
-            chunks = retrieve_chunks(payload.knowledgeBaseId, payload.question, DEFAULT_TOP_K, user_id)
-            output = f"Retrieved {len(chunks)} chunks."
-            status = "success"
-        else:
-            output = "No knowledge base was selected, so knowledge retrieval did not run."
-            status = "failed"
-        calls.append(
-            log_tool_call(
-                session_id,
-                None,
-                "knowledge_search",
-                {"knowledgeBaseId": payload.knowledgeBaseId, "query": payload.question, "topK": DEFAULT_TOP_K},
-                output,
-                status=status,
-                started_at=started,
-            )
-        )
-
-    started = time.time()
     history = get_recent_history(session_id)
-    if run_tool("session_memory_search", True):
-        calls.append(log_tool_call(session_id, None, "session_memory_search", {"sessionId": session_id, "limit": 8}, f"Read {len(history)} history messages.", started_at=started))
-
-    summary_keywords = ["summary", "summarize", "highlights", "overview", "\u603b\u7ed3", "\u4eae\u70b9", "\u6982\u62ec"]
-    if run_tool("document_summary", _contains_any(payload.question.lower(), summary_keywords)):
-        started = time.time()
-        attachment_summary = "; ".join((item.content or "")[:90] for item in payload.attachments[:3])
-        summary = "; ".join((item["chunk_text"] or "")[:90] for item in chunks[:3]) or attachment_summary or "No content is available to summarize."
-        calls.append(log_tool_call(session_id, None, "document_summary", {"chunkIds": [item["chunk_id"] for item in chunks[:3]], "summaryType": "brief"}, summary, started_at=started))
-
-    draft_keywords = ["markdown", "draft", "blog", "\u8349\u7a3f", "\u535a\u5ba2"]
-    if run_tool("markdown_draft_generate", _contains_any(payload.question.lower(), draft_keywords)):
-        started = time.time()
-        draft_source = "\n\n".join((item["chunk_text"] or "")[:200] for item in chunks[:3]) or "\n\n".join((item.content or "")[:200] for item in payload.attachments[:3])
-        draft = "# " + payload.question[:40] + "\n\n" + draft_source
-        calls.append(log_tool_call(session_id, None, "markdown_draft_generate", {"title": payload.question[:40], "contentType": "project_doc"}, draft, started_at=started))
-
+    calls: list[dict[str, Any]] = []
+    retrieval_run: dict[str, Any] | None = None
+    rag_quality: dict[str, Any] = {"enabled": False}
+    chunks: list[dict[str, Any]] = []
+    if use_rag and payload.knowledgeBaseId:
+        started_at = time.perf_counter()
+        chunks = retrieve_chunks(
+            payload.knowledgeBaseId,
+            payload.question,
+            DEFAULT_TOP_K,
+            user_id,
+        )
+        chunks = enrich_retrieval_chunks(payload.question, chunks)
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        rag_quality = assess_retrieval_quality(payload.question, chunks)
+        retrieval_run = record_retrieval_run(
+            user_id=user_id,
+            knowledge_base_id=payload.knowledgeBaseId,
+            query=payload.question,
+            top_k=DEFAULT_TOP_K,
+            chunks=chunks,
+            quality=rag_quality,
+            duration_ms=duration_ms,
+        )
+        rag_quality = {
+            **rag_quality,
+            "retrievalRunId": retrieval_run.get("id"),
+        }
     chat_config = get_model_config(payload.chatModelConfigId, "chat", user_id)
-    answer = generate_answer(payload.question, chunks, history, chat_config, agent_mode=True, use_rag=bool(payload.knowledgeBaseId), attachments=payload.attachments)
+    registry = build_tool_registry(user_id, payload.enableTools)
+    messages = build_messages(
+        payload.question,
+        chunks,
+        history,
+        agent_mode=bool(registry.schemas()),
+        use_rag=use_rag,
+        chat_config=chat_config,
+        attachments=payload.attachments,
+    )
+    try:
+        run_result = AgentRunner(
+            gateway=gateway,
+            max_tool_rounds=3,
+        ).run(
+            messages=messages,
+            config=chat_config,
+            registry=registry,
+        )
+        answer = run_result.answer
+    except Exception as exc:
+        run_result = None
+        if has_remote_model_config(chat_config):
+            answer = remote_model_error_answer(chat_config, exc)
+        else:
+            answer = fallback_answer(
+                payload.question,
+                chunks,
+                history,
+                agent_mode=bool(registry.schemas()),
+                use_rag=use_rag,
+                attachments=payload.attachments,
+            )
+    if run_result:
+        for execution in run_result.executions:
+            calls.append(
+                log_tool_call(
+                    session_id,
+                    None,
+                    execution.tool_name,
+                    execution.arguments,
+                    json.dumps(
+                        execution.output,
+                        ensure_ascii=False,
+                    )[:4000],
+                    status=execution.status,
+                    error_message=execution.error_message,
+                    latency_ms=execution.latency_ms,
+                )
+            )
     message_id = save_message(session_id, "assistant", answer)
+    update_retrieval_run_message(
+        retrieval_run.get("id") if retrieval_run else None,
+        message_id,
+    )
     refs = save_references(message_id, chunks)
-    execute("UPDATE agent_tool_call SET message_id=:message_id WHERE session_id=:session_id AND message_id IS NULL", {"message_id": message_id, "session_id": session_id})
-    return api_success({"sessionId": session_id, "messageId": message_id, "answer": answer, "references": refs, "toolCalls": calls})
+    for call in calls:
+        execute(
+            """
+            UPDATE agent_tool_call
+            SET message_id=:message_id
+            WHERE id=:id AND session_id=:session_id
+            """,
+            {
+                "message_id": message_id,
+                "id": call["id"],
+                "session_id": session_id,
+            },
+        )
+    return api_success(
+        {
+            "sessionId": session_id,
+            "messageId": message_id,
+            "answer": answer,
+            "references": refs,
+            "toolCalls": calls,
+            "ragQuality": rag_quality,
+            "retrievalRun": retrieval_run,
+        }
+    )
 
 
 @router.post("/api/agent/chat/stream", tags=EXTENSION_TAGS, summary="Reserved streaming agent chat endpoint")

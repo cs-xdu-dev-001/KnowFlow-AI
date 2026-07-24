@@ -50,11 +50,7 @@ def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="knowledgeBaseId is required when RAG is enabled")
     tool_mode = (payload.toolMode or "auto").lower()
     manual_tools = tool_mode == "manual" and bool(payload.enabledTools)
-    auto_tools = (
-        tool_mode == "auto"
-        and payload.enableTools
-        and (bool(payload.knowledgeBaseId) or bool(payload.attachments) or should_use_agent(payload.question))
-    )
+    auto_tools = tool_mode == "auto" and payload.enableTools
     if manual_tools or auto_tools or (payload.autoAgent and should_use_agent(payload.question)):
         payload.useRag = use_rag
         return agent_chat(payload, request)
