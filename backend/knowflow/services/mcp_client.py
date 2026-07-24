@@ -1,6 +1,6 @@
 """Defensive MCP remote client adapter."""
 from __future__ import annotations
-import asyncio, hashlib, json, re, inspect
+import asyncio, hashlib, json, re, inspect, threading
 from contextlib import AsyncExitStack
 from datetime import timedelta
 import httpx
@@ -64,7 +64,10 @@ class McpRemoteClient:
    if self.session_factory:
     made=self.session_factory(self.server_url,self.headers)
     if hasattr(made,'__aenter__'): s=await stack.enter_async_context(made)
-    else: s=await made if inspect.isawaitable(made) else made
+    else:
+     s=await made if inspect.isawaitable(made) else made
+     if hasattr(s,'aclose'): stack.push_async_callback(s.aclose)
+     elif hasattr(s,'close'): stack.callback(s.close)
    else:
     if not ClientSession: raise McpClientError("mcp_sdk_unavailable")
     transport=await stack.enter_async_context(streamable_http_client(self.server_url,http_client=http))
@@ -102,7 +105,7 @@ class McpRemoteClient:
 class McpRunSessionPool:
  def __init__(self,server_loader=None,oauth=None,connect_timeout=10,request_timeout=30,max_response_bytes=None,max_chars=4000,resolver=None,allow_private=False,client_factory=None,**kwargs):
   if kwargs: raise TypeError(f"unknown kwargs: {','.join(kwargs)}")
-  self.server_loader=server_loader; self.oauth=oauth; self.params=dict(connect_timeout=connect_timeout,request_timeout=request_timeout,max_response_bytes=max_response_bytes,max_chars=max_chars,resolver=resolver,allow_private=allow_private); self.client_factory=client_factory or McpRemoteClient; self._sessions={}; self._clients={}; self._loop=asyncio.new_event_loop()
+  self.server_loader=server_loader; self.oauth=oauth; self.params=dict(connect_timeout=connect_timeout,request_timeout=request_timeout,max_response_bytes=max_response_bytes,max_chars=max_chars,resolver=resolver,allow_private=allow_private); self.client_factory=client_factory or McpRemoteClient; self._sessions={}; self._clients={}; self._loop=asyncio.new_event_loop(); self._thread=threading.get_ident()
  def __enter__(self): return self
  def __exit__(self,*exc): self.close()
  def _make(self,sid):
@@ -111,12 +114,23 @@ class McpRunSessionPool:
   if not isinstance(x,dict): return x
   creds=x.get('credentials') or {}; headers=creds.get('headers') or {}
   return self.client_factory(x.get('id',sid),x['url'],headers=headers,server_name=x.get('name') or sid,**self.params)
- def call_tool(self,server_id,remote_name,args=None): return self._loop.run_until_complete(self._call(server_id,remote_name,args or {}))
+ def _check_thread(self):
+  if threading.get_ident()!=self._thread: raise McpClientError("mcp_pool_thread_mismatch","mcp_pool_thread_mismatch")
+ def call_tool(self,server_id,remote_name,args=None): self._check_thread(); return self._loop.run_until_complete(self._call(server_id,remote_name,args or {}))
  async def _call(self,sid,remote,args):
   if sid not in self._sessions:
    client=self._make(sid); self._clients[sid]=client; self._sessions[sid]=await client._connect()
   r=await self._sessions[sid].session.call_tool(remote,args); return normalize_result(r,self.params['max_chars'],self._clients[sid].max_response_bytes)
+ def invalidate(self,server_id):
+  self._check_thread()
+  if server_id in self._sessions: self._loop.run_until_complete(self._drop(server_id))
+ async def _drop(self,sid):
+  c=self._sessions.pop(sid,None); client=self._clients.pop(sid,None)
+  if c:
+   await c.stack.aclose(); await c.http.aclose()
+  if client and hasattr(client,'aclose'): await client.aclose()
  def close(self):
+  self._check_thread()
   if not self._loop.is_closed(): self._loop.run_until_complete(self._aclose()); self._loop.close()
  async def _aclose(self):
   for sid in reversed(list(self._sessions)):
