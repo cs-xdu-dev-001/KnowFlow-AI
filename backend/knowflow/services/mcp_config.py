@@ -93,5 +93,5 @@ class McpConfigService:
         if not row: return None
         return row if self.execute_rowcount("DELETE FROM mcp_oauth_session WHERE id=:id AND user_id=:user_id AND state_hash=:state_hash", {"id":session_id,"user_id":user_id,"state_hash":state_hash}) == 1 else None
 
-    def delete_expired_oauth_sessions(self, now=None):
-        return self.execute("DELETE FROM mcp_oauth_session WHERE expires_at < :now", {"now": now or self.now_str()})
+    def delete_expired_oauth_sessions(self, user_id, now=None):
+        return self.execute_rowcount("DELETE FROM mcp_oauth_session WHERE user_id=:user_id AND expires_at < :now", {"user_id": user_id, "now": now or self.now_str()})
