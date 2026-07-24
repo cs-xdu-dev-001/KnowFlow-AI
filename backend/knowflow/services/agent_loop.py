@@ -87,8 +87,14 @@ class AgentRunner:
         working=[dict(m) for m in messages]; executions=[]; schemas=registry.schemas()
         for tool_round in range(self.max_tool_rounds+1):
             ms=trace.start_step(kind="model",name="model_completion",title="Model is analyzing",parent_id=parent_step_id,input_summary={"messageCount":len(working),"toolCount":len(schemas)}) if trace else None
-            message=self.gateway.complete(working,config,tools=schemas or None,tool_choice="auto" if schemas else None); calls=message.get("tool_calls") or []; answer=str(message.get("content") or "").strip()
-            if trace and ms: trace.finish_step(ms,status="success" if calls or answer else "failed",title="Model selected a tool" if calls else "Model generated an answer",output_summary={"toolCallCount":len(calls)})
+            try:
+                message=self.gateway.complete(working,config,tools=schemas or None,tool_choice="auto" if schemas else None)
+            except Exception:
+                if trace and ms: trace.finish_step(ms,status="failed",title="Model request failed",error_code="model_request_failed")
+                raise
+            calls=message.get("tool_calls") or []; answer=str(message.get("content") or "").strip()
+            if trace and ms:
+                trace.finish_step(ms,status="success" if calls or answer else "failed", title="Model selected a tool" if calls else ("Model generated an answer" if answer else "Model response was invalid"), output_summary={"toolCallCount":len(calls)} if calls or answer else None, error_code=None if calls or answer else "invalid_model_response")
             if not calls:
                 if not answer: raise ValueError("Model returned neither text nor tool calls.")
                 return AgentRunResult(answer,executions,trace.snapshot() if trace else [])
