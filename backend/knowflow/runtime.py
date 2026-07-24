@@ -38,6 +38,7 @@ from .database import Database
 from .responses import *
 from .schemas import *
 from .services.tool_config import ToolConfigService
+from .services.mcp_config import McpConfigService
 
 
 
@@ -165,11 +166,25 @@ def execute(sql: str, params: dict[str, Any] | None = None) -> int | None:
         except Exception:
             return None
 
+def execute_rowcount(sql: str, params: dict[str, Any] | None = None) -> int:
+    with db.engine.begin() as conn:
+        result = conn.execute(text(sql), params or {})
+        return int(result.rowcount or 0)
+
 
 tool_configs = ToolConfigService(
     fetch_one=fetch_one,
     fetch_all=fetch_all,
     execute=execute,
+    cipher=cipher,
+    now_str=now_str,
+)
+
+mcp_configs = McpConfigService(
+    fetch_one=fetch_one,
+    fetch_all=fetch_all,
+    execute=execute,
+    execute_rowcount=execute_rowcount,
     cipher=cipher,
     now_str=now_str,
 )
