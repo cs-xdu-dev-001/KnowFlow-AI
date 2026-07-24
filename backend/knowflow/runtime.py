@@ -39,6 +39,7 @@ from .responses import *
 from .schemas import *
 from .services.tool_config import ToolConfigService
 from .services.mcp_config import McpConfigService
+from .services.mcp_oauth import McpOAuthCoordinator
 
 
 
@@ -187,6 +188,14 @@ mcp_configs = McpConfigService(
     execute_rowcount=execute_rowcount,
     cipher=cipher,
     now_str=now_str,
+)
+
+mcp_oauth = McpOAuthCoordinator(
+    configs=mcp_configs,
+    base_url=BASE_URL,
+    allow_private=MCP_ALLOW_PRIVATE_NETWORKS,
+    timeout=MCP_REQUEST_TIMEOUT,
+    max_bytes=MCP_MAX_RESPONSE_BYTES,
 )
 
 

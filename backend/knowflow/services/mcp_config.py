@@ -62,6 +62,15 @@ class McpConfigService:
     def save_credentials(self, user_id, server_id, credentials):
         self.execute("UPDATE mcp_server SET credentials_cipher=:credentials_cipher, updated_at=:updated_at WHERE id=:id AND user_id=:user_id", {"credentials_cipher": self.encrypt_credentials(credentials), "updated_at": self.now_str(), "id": server_id, "user_id": user_id}); return self.get_owned(user_id, server_id)
 
+    def clear_credentials(self, user_id, server_id):
+        self.execute("UPDATE mcp_server SET credentials_cipher=NULL, updated_at=:updated_at WHERE id=:id AND user_id=:user_id", {"updated_at": self.now_str(), "id": server_id, "user_id": user_id})
+        return self.get_owned(user_id, server_id)
+
+    def set_enabled_tools(self, user_id, server_id, enabled_tools):
+        vals = list(dict.fromkeys(enabled_tools or []))[:MCP_MAX_EXPOSED_TOOLS]
+        self.execute("UPDATE mcp_server SET enabled_tools_json=:enabled_tools_json, updated_at=:updated_at WHERE id=:id AND user_id=:user_id", {"enabled_tools_json": json.dumps(vals, ensure_ascii=False), "updated_at": self.now_str(), "id": server_id, "user_id": user_id})
+        return self.get_owned(user_id, server_id)
+
     def secret(self, user_id, server_id):
         r = self._row(user_id, server_id)
         if not r:

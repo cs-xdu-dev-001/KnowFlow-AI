@@ -75,7 +75,7 @@ def favicon() -> FileResponse:
     raise HTTPException(status_code=404, detail="Favicon not found.")
 
 
-PUBLIC_API_PATHS = {"/api/health", "/api/runtime", "/api/auth/me", "/api/auth/login", "/api/auth/register", "/api/auth/logout"}
+PUBLIC_API_PATHS = {"/api/health", "/api/runtime", "/api/auth/me", "/api/auth/login", "/api/auth/register", "/api/auth/logout", "/api/mcp/oauth/callback"}
 PUBLIC_PREFIXES = ("/assets", "/vendor", "/docs", "/redoc", "/openapi.json", "/api/auth/oauth/", "/favicon.ico", "/favicon.svg")
 
 

@@ -6,6 +6,7 @@ from .tool_configs import router as tool_config_router
 from .knowledge import router as knowledge_router
 from .chat import router as chat_router
 from .extensions import router as extension_router
+from .mcp import router as mcp_router
 
 routers = [
     auth_router,
@@ -14,4 +15,5 @@ routers = [
     knowledge_router,
     chat_router,
     extension_router,
+    mcp_router,
 ]
