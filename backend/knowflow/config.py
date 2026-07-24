@@ -85,6 +85,11 @@ DEFAULT_TOP_K = env_int("KNOWFLOW_TOP_K", 5)
 RETRIEVAL_SCORE_THRESHOLD = env_float("KNOWFLOW_RAG_SCORE_THRESHOLD", 0.25)
 MODEL_REQUEST_TIMEOUT = env_int("KNOWFLOW_MODEL_REQUEST_TIMEOUT", 45)
 MODEL_TRUST_ENV = os.getenv("KNOWFLOW_MODEL_TRUST_ENV", "0") == "1"
+WEB_SEARCH_TIMEOUT = max(1, env_int("KNOWFLOW_WEB_SEARCH_TIMEOUT", 15))
+WEB_SEARCH_MAX_RESULTS = max(
+    1,
+    min(10, env_int("KNOWFLOW_WEB_SEARCH_MAX_RESULTS", 5)),
+)
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 IMAGE_MIME_TYPES = {
     ".png": "image/png",

@@ -31,6 +31,15 @@ def main() -> None:
 
     app_module = importlib.import_module("main")
     runtime = importlib.import_module("knowflow.runtime")
+    tool_config_router = importlib.import_module("knowflow.routers.tool_configs")
+
+    class FakeProvider:
+        def search(self, query: str, top_k: int = 5):
+            assert query == "KnowFlow AI connectivity check"
+            assert top_k == 1
+            return [{"title": "KnowFlow AI", "url": "https://example.com"}]
+
+    tool_config_router.make_web_search_provider = lambda api_key: FakeProvider()
     alice = TestClient(app_module.app)
     bob = TestClient(app_module.app)
     register(alice, "tool-alice")
@@ -63,6 +72,12 @@ def main() -> None:
         {"id": row["id"]},
     )
     assert runtime.cipher.decrypt(current["api_key_cipher"]) == "unit-test-secret"
+
+    checked = alice.post("/api/tool-configs/web_search/test")
+    assert checked.status_code == 200, checked.text
+    assert checked.json()["data"]["resultCount"] == 1
+    assert "1 credit" in checked.json()["data"]["message"]
+    assert bob.post("/api/tool-configs/web_search/test").status_code == 400
 
     missing_key = bob.put(
         "/api/tool-configs/web_search",

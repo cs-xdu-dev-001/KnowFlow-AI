@@ -1,6 +1,15 @@
 from fastapi import APIRouter, HTTPException, Request
 
-from ..runtime import ToolConfigUpdate, api_success, current_user_id, tool_configs
+from ..runtime import (
+    ToolConfigUpdate,
+    WEB_SEARCH_MAX_RESULTS,
+    WEB_SEARCH_TIMEOUT,
+    api_success,
+    current_user_id,
+    post_model_json,
+    tool_configs,
+)
+from ..services.web_search import TavilyWebSearch, WebSearchError
 
 
 router = APIRouter()
@@ -12,6 +21,15 @@ def require_tool_name(tool_name: str) -> str:
     if tool_name not in SUPPORTED_TOOL_NAMES:
         raise HTTPException(status_code=404, detail="Tool configuration not found.")
     return tool_name
+
+
+def make_web_search_provider(api_key: str) -> TavilyWebSearch:
+    return TavilyWebSearch(
+        api_key=api_key,
+        post_json=post_model_json,
+        timeout=WEB_SEARCH_TIMEOUT,
+        max_results=WEB_SEARCH_MAX_RESULTS,
+    )
 
 
 @router.get("/api/tool-configs", tags=TOOL_CONFIG_TAGS, summary="List tool configurations")
@@ -51,3 +69,36 @@ def delete_tool_config(tool_name: str, request: Request) -> dict:
     require_tool_name(tool_name)
     tool_configs.delete(current_user_id(request), tool_name)
     return api_success(True)
+
+
+@router.post(
+    "/api/tool-configs/{tool_name}/test",
+    tags=TOOL_CONFIG_TAGS,
+    summary="Test a tool connection",
+)
+def test_tool_config(tool_name: str, request: Request) -> dict:
+    require_tool_name(tool_name)
+    config = tool_configs.secret(
+        current_user_id(request),
+        tool_name,
+        require_enabled=False,
+    )
+    if not config:
+        raise HTTPException(
+            status_code=400,
+            detail="Save an API key before checking this tool.",
+        )
+    try:
+        results = make_web_search_provider(config["api_key"]).search(
+            "KnowFlow AI connectivity check",
+            top_k=1,
+        )
+    except WebSearchError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return api_success(
+        {
+            "status": "available",
+            "resultCount": len(results),
+            "message": "Tavily connection check completed. This check used 1 credit.",
+        }
+    )
