@@ -98,6 +98,10 @@ class T(unittest.TestCase):
    def __init__(self): self.n=0
    async def aclose(self): self.n+=1
   d=D(); asyncio.run(_PinnedTransport(d,lambda h,p:['93.184.216.34']).aclose()); self.assertEqual(d.n,1)
+ def test_pinned_host_authority_and_no_mutation(self):
+  class D:
+   async def handle_async_request(self,r): self.r=r; return httpx.Response(200,request=r)
+  d=D(); req=httpx.Request('GET','https://example.com:8443/x'); original=dict(req.headers); asyncio.run(_PinnedTransport(d,lambda h,p:['93.184.216.34']).handle_async_request(req)); self.assertEqual(d.r.headers['host'],'example.com:8443'); self.assertEqual(dict(req.headers),original)
  def test_name_and_normalize(self):
   self.assertLessEqual(len(model_tool_name('a'*100,'b'*100)),64)
   x=normalize_result({'content':[{'type':'image','data':'x'}]}); self.assertNotIn('data',str(x)); self.assertIsNone(x['structuredContent'])

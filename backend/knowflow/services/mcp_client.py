@@ -25,9 +25,9 @@ class _PinnedTransport(httpx.AsyncBaseTransport):
  async def handle_async_request(self, request):
   host=request.url.host; port=request.url.port or (443 if request.url.scheme=="https" else 80)
   ip=resolve_remote_addresses(host,port,self.resolver,self.allow_private)[0]
-  headers=request.headers
-  if "host" not in headers: headers["host"]=host
-  req=httpx.Request(request.method,request.url,headers=request.headers,content=request.stream,extensions=dict(request.extensions))
+  headers=request.headers.copy()
+  if "host" not in headers: headers["host"]=request.url.netloc.decode("ascii")
+  req=httpx.Request(request.method,request.url,headers=headers,stream=request.stream,extensions=dict(request.extensions))
   req.url=req.url.copy_with(host=ip)
   req.extensions["sni_hostname"]=host
   return await self.delegate.handle_async_request(req)
