@@ -10,6 +10,7 @@ from knowflow.services.agent_loop import (
     AgentRunner,
     ToolRegistry,
 )
+from knowflow.services.agent_trace import AgentTraceRecorder
 from knowflow.services.web_search import WebSearchArguments
 
 
@@ -68,10 +69,13 @@ def main() -> None:
             },
         ]
     )
+    trace = AgentTraceRecorder(run_id="run_agent_loop")
     result = AgentRunner(gateway=gateway, max_tool_rounds=3).run(
         messages=[{"role": "user", "content": "What changed today?"}],
         config={"model_name": "fake"},
         registry=make_registry(),
+        trace=trace,
+        parent_step_id="step_root",
     )
     assert result.answer == "See [source](https://example.com/current)."
     assert len(result.executions) == 1
@@ -81,6 +85,19 @@ def main() -> None:
     assert tool_message["role"] == "tool"
     assert tool_message["tool_call_id"] == "call-search-1"
     assert "https://example.com/current" in tool_message["content"]
+    assert result.trace == trace.snapshot()
+    assert [
+        (step["kind"], step["status"])
+        for step in result.trace
+    ] == [
+        ("model", "success"),
+        ("tool", "success"),
+        ("model", "success"),
+    ]
+    assert all(
+        step["parentId"] == "step_root"
+        for step in result.trace
+    )
 
     direct_gateway = FakeGateway(
         [{"role": "assistant", "content": "No search needed."}]

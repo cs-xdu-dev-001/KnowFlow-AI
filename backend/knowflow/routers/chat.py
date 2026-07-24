@@ -1,12 +1,32 @@
 from fastapi import APIRouter
 
 from ..runtime import *
-from .extensions import agent_chat
+from .extensions import agent_chat, agent_chat_stream
 
 router = APIRouter()
 
 CHAT_TAGS = ["Chat"]
 SESSION_TAGS = ["Sessions"]
+
+
+def should_route_to_agent(payload: ChatRequest) -> bool:
+    tool_mode = (payload.toolMode or "auto").lower()
+    manual_tools = (
+        tool_mode == "manual"
+        and bool(payload.enabledTools)
+    )
+    auto_tools = (
+        tool_mode == "auto"
+        and payload.enableTools
+    )
+    return (
+        manual_tools
+        or auto_tools
+        or (
+            payload.autoAgent
+            and should_use_agent(payload.question)
+        )
+    )
 
 
 @router.post("/api/chat/attachments", tags=CHAT_TAGS, summary="Upload a chat attachment")
@@ -48,10 +68,7 @@ def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     use_rag = bool(payload.knowledgeBaseId) or payload.useRag
     if use_rag and not payload.knowledgeBaseId:
         raise HTTPException(status_code=400, detail="knowledgeBaseId is required when RAG is enabled")
-    tool_mode = (payload.toolMode or "auto").lower()
-    manual_tools = tool_mode == "manual" and bool(payload.enabledTools)
-    auto_tools = tool_mode == "auto" and payload.enableTools
-    if manual_tools or auto_tools or (payload.autoAgent and should_use_agent(payload.question)):
+    if should_route_to_agent(payload):
         payload.useRag = use_rag
         return agent_chat(payload, request)
     if payload.knowledgeBaseId:
@@ -97,6 +114,12 @@ def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
 
 @router.post("/api/chat/stream", tags=CHAT_TAGS, summary="Stream a chat answer")
 def chat_stream(payload: ChatRequest, request: Request) -> StreamingResponse:
+    if should_route_to_agent(payload):
+        payload.useRag = (
+            bool(payload.knowledgeBaseId)
+            or payload.useRag
+        )
+        return agent_chat_stream(payload, request)
     result = chat(payload, request)["data"]
 
     def generate() -> Iterable[str]:
@@ -159,7 +182,18 @@ def list_sessions(request: Request) -> dict[str, Any]:
 @router.get("/api/sessions/{session_id}/messages", tags=SESSION_TAGS, summary="Read session messages")
 def read_session_messages(session_id: str, request: Request) -> dict[str, Any]:
     get_session_for_user(session_id, current_user_id(request))
-    return api_success(fetch_all("SELECT * FROM chat_message WHERE session_id=:session_id ORDER BY id ASC", {"session_id": session_id}))
+    rows = fetch_all(
+        """
+        SELECT *
+        FROM chat_message
+        WHERE session_id=:session_id
+        ORDER BY id ASC
+        """,
+        {"session_id": session_id},
+    )
+    return api_success(
+        [normalize_chat_message(row) for row in rows]
+    )
 
 
 @router.put("/api/sessions/{session_id}", tags=SESSION_TAGS, summary="Rename a session")

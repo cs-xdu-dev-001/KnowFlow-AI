@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, text
 
 from .db_schema import MYSQL_SCHEMA, SQLITE_SCHEMA
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 
 class Database:
@@ -48,6 +48,13 @@ class Database:
         id_type = "BIGINT" if self.is_mysql else "INTEGER"
         for table in ["model_config", "knowledge_base", "document", "chat_session", "sync_task"]:
             self.add_column_if_missing(conn, table, "user_id", id_type)
+        trace_type = "LONGTEXT" if self.is_mysql else "TEXT"
+        self.add_column_if_missing(
+            conn,
+            "chat_message",
+            "trace_json",
+            trace_type,
+        )
 
     def record_schema_version(self, conn: Any) -> None:
         conn.execute(
@@ -60,6 +67,9 @@ class Database:
             ),
             {
                 "version": CURRENT_SCHEMA_VERSION,
-                "description": "Add encrypted per-user tool configuration for agent tools.",
+                "description": (
+                    "Add encrypted per-user tool configuration "
+                    "and persisted agent trace snapshots."
+                ),
             },
         )

@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS chat_message (
   session_id TEXT NOT NULL,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
+  trace_json TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS message_reference (
@@ -268,6 +269,7 @@ CREATE TABLE IF NOT EXISTS chat_message (
   session_id VARCHAR(64) NOT NULL,
   role VARCHAR(20) NOT NULL,
   content LONGTEXT NOT NULL,
+  trace_json LONGTEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   KEY idx_message_session_time (session_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

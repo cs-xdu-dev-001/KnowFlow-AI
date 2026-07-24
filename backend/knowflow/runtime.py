@@ -557,16 +557,53 @@ def ensure_session(session_id: str | None, knowledge_base_id: int | None, chat_m
     return final_id
 
 
-def save_message(session_id: str, role: str, content: str) -> int:
+def save_message(
+    session_id: str,
+    role: str,
+    content: str,
+    trace: list[dict[str, Any]] | None = None,
+) -> int:
     message_id = execute(
         """
-        INSERT INTO chat_message(session_id, role, content, created_at)
-        VALUES (:session_id, :role, :content, :created_at)
+        INSERT INTO chat_message(
+            session_id, role, content, trace_json, created_at
+        )
+        VALUES (
+            :session_id, :role, :content, :trace_json, :created_at
+        )
         """,
-        {"session_id": session_id, "role": role, "content": content, "created_at": now_str()},
+        {
+            "session_id": session_id,
+            "role": role,
+            "content": content,
+            "trace_json": (
+                json.dumps(trace, ensure_ascii=False)
+                if trace
+                else None
+            ),
+            "created_at": now_str(),
+        },
     )
     execute("UPDATE chat_session SET updated_at=:updated_at WHERE id=:id", {"updated_at": now_str(), "id": session_id})
     return int(message_id or 0)
+
+
+def normalize_chat_message(
+    row: dict[str, Any],
+) -> dict[str, Any]:
+    trace_json = row.get("trace_json")
+    try:
+        trace = json.loads(trace_json) if trace_json else []
+    except (TypeError, json.JSONDecodeError):
+        trace = []
+    return {
+        "id": row["id"],
+        "sessionId": row["session_id"],
+        "role": row["role"],
+        "content": row["content"],
+        "trace": trace if isinstance(trace, list) else [],
+        "createdAt": str(row["created_at"]),
+    }
 
 
 def get_recent_history(session_id: str, limit: int = 8) -> list[dict[str, Any]]:

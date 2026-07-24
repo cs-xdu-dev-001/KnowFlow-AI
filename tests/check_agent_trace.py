@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import sys
+
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "backend"))
+
+from knowflow.services.agent_trace import AgentTraceRecorder
+
+
+class FakeClock:
+    def __init__(self):
+        self.value = 100.0
+
+    def __call__(self):
+        return self.value
+
+
+def main() -> None:
+    emitted = []
+    clock = FakeClock()
+    trace = AgentTraceRecorder(
+        emit=emitted.append,
+        run_id="run_test",
+        clock=clock,
+    )
+    root = trace.start_step(
+        kind="system",
+        name="agent_run",
+        title="开始处理",
+    )
+    tool = trace.start_step(
+        kind="tool",
+        name="web_search",
+        title="正在联网搜索",
+        parent_id=root,
+        input_summary={
+            "query": "latest release",
+            "apiKey": "search-super-secret",
+        },
+    )
+    clock.value = 100.125
+    trace.finish_step(
+        tool,
+        status="success",
+        title="联网搜索完成",
+        output_summary={
+            "count": 3,
+            "authorization": "credential-value",
+        },
+    )
+    trace.finish_step(root, status="success", title="处理完成")
+
+    assert emitted[0]["status"] == "running"
+    assert emitted[1]["parentId"] == root
+    assert emitted[2]["stepId"] == tool
+    assert emitted[2]["status"] == "success"
+    assert emitted[2]["durationMs"] == 125
+    serialized = json.dumps(emitted, ensure_ascii=False)
+    assert "search-super-secret" not in serialized
+    assert "credential-value" not in serialized
+    assert "[REDACTED]" in serialized
+    snapshot = trace.snapshot()
+    assert [step["stepId"] for step in snapshot] == [root, tool]
+    assert all(step["status"] == "success" for step in snapshot)
+    print("agent trace events are ordered, merged, and sanitized")
+
+
+if __name__ == "__main__":
+    main()

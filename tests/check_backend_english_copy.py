@@ -14,6 +14,8 @@ CHECK_FILES = [
     "backend/knowflow/routers/model_configs.py",
     "backend/knowflow/routers/tool_configs.py",
     "backend/knowflow/services/document_parser.py",
+    "backend/knowflow/services/agent_loop.py",
+    "backend/knowflow/services/agent_trace.py",
     "backend/knowflow/services/model_gateway.py",
 ]
 

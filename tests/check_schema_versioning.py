@@ -25,8 +25,8 @@ def main() -> None:
     row = fetch_one("SELECT version, description FROM schema_version ORDER BY version DESC LIMIT 1")
     assert row, "schema_version should contain at least one applied version"
     assert row["version"] == CURRENT_SCHEMA_VERSION, row
-    assert CURRENT_SCHEMA_VERSION == 2, CURRENT_SCHEMA_VERSION
-    assert "user tool configuration" in row["description"], row
+    assert CURRENT_SCHEMA_VERSION == 3, CURRENT_SCHEMA_VERSION
+    assert "agent trace" in row["description"].lower(), row
     columns = {item["name"] for item in fetch_all("PRAGMA table_info(tool_config)")}
     assert columns == {
         "id",
@@ -38,6 +38,11 @@ def main() -> None:
         "created_at",
         "updated_at",
     }, columns
+    message_columns = {
+        item["name"]
+        for item in fetch_all("PRAGMA table_info(chat_message)")
+    }
+    assert "trace_json" in message_columns, message_columns
 
     print("schema version is recorded during database initialization")
 

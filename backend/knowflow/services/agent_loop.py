@@ -7,6 +7,8 @@ from typing import Any, Callable
 
 from pydantic import BaseModel, ValidationError
 
+from .agent_trace import AgentTraceRecorder
+
 
 @dataclass
 class ToolDefinition:
@@ -50,6 +52,7 @@ class ToolExecution:
 class AgentRunResult:
     answer: str
     executions: list[ToolExecution]
+    trace: list[dict[str, Any]]
 
 
 class AgentLoopLimitError(RuntimeError):
@@ -183,25 +186,76 @@ class AgentRunner:
         messages: list[dict[str, Any]],
         config: dict[str, Any] | None,
         registry: ToolRegistry,
+        trace: AgentTraceRecorder | None = None,
+        parent_step_id: str | None = None,
     ) -> AgentRunResult:
         working_messages = [dict(message) for message in messages]
         executions: list[ToolExecution] = []
         schemas = registry.schemas()
         for tool_round in range(self.max_tool_rounds + 1):
-            message = self.gateway.complete(
-                working_messages,
-                config,
-                tools=schemas or None,
-                tool_choice="auto" if schemas else None,
+            model_step = (
+                trace.start_step(
+                    kind="model",
+                    name="model_completion",
+                    title="Model is analyzing",
+                    parent_id=parent_step_id,
+                    input_summary={
+                        "messageCount": len(working_messages),
+                        "toolCount": len(schemas),
+                    },
+                )
+                if trace
+                else None
             )
+            try:
+                message = self.gateway.complete(
+                    working_messages,
+                    config,
+                    tools=schemas or None,
+                    tool_choice="auto" if schemas else None,
+                )
+            except Exception:
+                if trace and model_step:
+                    trace.finish_step(
+                        model_step,
+                        status="failed",
+                        title="Model request failed",
+                        error_code="model_request_failed",
+                    )
+                raise
             tool_calls = message.get("tool_calls") or []
+            answer = str(message.get("content") or "").strip()
+            if trace and model_step:
+                if tool_calls or answer:
+                    trace.finish_step(
+                        model_step,
+                        status="success",
+                        title=(
+                            "Model selected a tool"
+                            if tool_calls
+                            else "Model generated an answer"
+                        ),
+                        output_summary={
+                            "toolCallCount": len(tool_calls),
+                        },
+                    )
+                else:
+                    trace.finish_step(
+                        model_step,
+                        status="failed",
+                        title="Model response was invalid",
+                        error_code="invalid_model_response",
+                    )
             if not tool_calls:
-                answer = str(message.get("content") or "").strip()
                 if not answer:
                     raise ValueError(
                         "Model returned neither text nor tool calls."
                     )
-                return AgentRunResult(answer=answer, executions=executions)
+                return AgentRunResult(
+                    answer=answer,
+                    executions=executions,
+                    trace=trace.snapshot() if trace else [],
+                )
             if tool_round >= self.max_tool_rounds:
                 raise AgentLoopLimitError(
                     "Agent exceeded the maximum tool-call rounds."
@@ -214,8 +268,45 @@ class AgentRunner:
                 }
             )
             for tool_call in tool_calls:
+                function = tool_call.get("function") or {}
+                tool_name = str(
+                    function.get("name") or "unknown"
+                )
+                tool_step = (
+                    trace.start_step(
+                        kind="tool",
+                        name=tool_name,
+                        title=f"Running {tool_name}",
+                        parent_id=parent_step_id,
+                        input_summary=function.get("arguments"),
+                    )
+                    if trace
+                    else None
+                )
                 execution = registry.execute(tool_call)
                 executions.append(execution)
+                if trace and tool_step:
+                    succeeded = execution.status == "success"
+                    trace.finish_step(
+                        tool_step,
+                        status="success" if succeeded else "failed",
+                        title=(
+                            f"{tool_name} completed"
+                            if succeeded
+                            else f"{tool_name} failed"
+                        ),
+                        output_summary=(
+                            execution.output
+                            if succeeded
+                            else execution.error_message
+                        ),
+                        error_code=(
+                            None
+                            if succeeded
+                            else execution.error_code
+                            or "tool_execution_failed"
+                        ),
+                    )
                 working_messages.append(
                     {
                         "role": "tool",
