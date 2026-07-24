@@ -3,6 +3,9 @@ from importlib.metadata import version
 from packaging.version import Version
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]; BACKEND=ROOT/'backend'
+requirements=(ROOT/'backend'/'requirements.txt').read_text()
+assert 'mcp==1.28.1' in requirements
+assert 'pydantic==2.13.4' in requirements
 db=ROOT/'data'/'test-dbs'/'mcp-schema.db'; db.parent.mkdir(parents=True,exist_ok=True)
 if db.exists(): db.unlink()
 os.environ['KNOWFLOW_DB_URL']=f'sqlite:///{db.as_posix()}'; os.environ['KNOWFLOW_VECTOR_BACKEND']='local'; sys.path.insert(0,str(BACKEND))
