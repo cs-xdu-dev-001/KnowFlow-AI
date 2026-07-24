@@ -23,6 +23,7 @@ os.environ.update(
     KNOWFLOW_VECTOR_BACKEND="local",
     KNOWFLOW_MCP_APPROVAL_TIMEOUT="10",
 )
+os.environ["KNOWFLOW_COOKIE_SECURE"] = "0"
 sys.path.insert(0, str(BACKEND))
 
 

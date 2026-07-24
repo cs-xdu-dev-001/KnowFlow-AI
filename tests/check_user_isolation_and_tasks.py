@@ -67,6 +67,7 @@ def main() -> None:
     os.environ["KNOWFLOW_DB_URL"] = f"sqlite:///{db_path.as_posix()}"
     os.environ["KNOWFLOW_UPLOAD_DIR"] = str(upload_dir)
     os.environ["KNOWFLOW_SECRET_KEY"] = "user-isolation-test-secret"
+    os.environ["KNOWFLOW_COOKIE_SECURE"] = "0"
     os.environ["KNOWFLOW_VECTOR_BACKEND"] = "local"
     os.environ["KNOWFLOW_ADOPT_LEGACY_DATA"] = "0"
     sys.path.insert(0, str(BACKEND))

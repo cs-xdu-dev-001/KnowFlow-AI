@@ -23,6 +23,7 @@ def main() -> None:
     db_path.unlink(missing_ok=True)
     os.environ["KNOWFLOW_DB_URL"] = f"sqlite:///{db_path.as_posix()}"
     os.environ["KNOWFLOW_SECRET_KEY"] = "auth-flow-test-secret"
+    os.environ["KNOWFLOW_COOKIE_SECURE"] = "0"
     os.environ["KNOWFLOW_BASE_URL"] = "http://127.0.0.1:8010"
     os.environ["KNOWFLOW_OAUTH_RETURN_ORIGINS"] = "http://127.0.0.1:5173"
     os.environ["KNOWFLOW_GITHUB_CLIENT_ID"] = "test-client"

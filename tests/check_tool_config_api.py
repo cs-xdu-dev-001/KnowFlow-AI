@@ -26,6 +26,7 @@ def main() -> None:
     db_path.unlink(missing_ok=True)
     os.environ["KNOWFLOW_DB_URL"] = f"sqlite:///{db_path.as_posix()}"
     os.environ["KNOWFLOW_SECRET_KEY"] = "tool-config-test-secret"
+    os.environ["KNOWFLOW_COOKIE_SECURE"] = "0"
     os.environ["KNOWFLOW_VECTOR_BACKEND"] = "local"
     sys.path.insert(0, str(BACKEND))
 

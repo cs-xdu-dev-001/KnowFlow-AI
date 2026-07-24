@@ -21,6 +21,7 @@ os.environ.update(
     KNOWFLOW_BASE_URL="http://127.0.0.1:8010",
     KNOWFLOW_VECTOR_STORE="local",
 )
+os.environ["KNOWFLOW_COOKIE_SECURE"] = "0"
 sys.path.insert(0, str(ROOT / "backend"))
 
 from knowflow.services.agent_loop import AgentRunner, ToolRegistry

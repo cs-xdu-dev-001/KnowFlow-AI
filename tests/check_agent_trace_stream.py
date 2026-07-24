@@ -120,6 +120,7 @@ def main() -> None:
         f"sqlite:///{db_path.as_posix()}"
     )
     os.environ["KNOWFLOW_SECRET_KEY"] = "trace-test-secret"
+    os.environ["KNOWFLOW_COOKIE_SECURE"] = "0"
     os.environ["KNOWFLOW_VECTOR_BACKEND"] = "local"
     sys.path.insert(0, str(BACKEND))
 

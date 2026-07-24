@@ -7,6 +7,7 @@ ROOT=Path(__file__).resolve().parents[1]; DB=ROOT/'data'/'test-dbs'/'mcp-api.db'
 def main():
     DB.unlink(missing_ok=True)
     os.environ.update(KNOWFLOW_DB_URL=f'sqlite:///{DB.as_posix()}', KNOWFLOW_SECRET_KEY='mcp-test-secret', KNOWFLOW_BASE_URL='http://127.0.0.1:8010', KNOWFLOW_OAUTH_RETURN_ORIGINS='http://127.0.0.1:5173', KNOWFLOW_VECTOR_STORE='local')
+    os.environ["KNOWFLOW_COOKIE_SECURE"] = "0"
     sys.path.insert(0,str(ROOT/'backend'))
     for n in list(sys.modules):
         if n=='main' or n.startswith('knowflow'): sys.modules.pop(n,None)
