@@ -150,6 +150,35 @@ def main() -> None:
     except AgentLoopLimitError:
         pass
 
+    failing_trace = AgentTraceRecorder(run_id="run_model_failure")
+    class RaisingGateway:
+        def complete(self, *args, **kwargs):
+            raise RuntimeError("boom")
+    try:
+        AgentRunner(gateway=RaisingGateway()).run(
+            messages=[{"role": "user", "content": "x"}], config={},
+            registry=make_registry(), trace=failing_trace,
+        )
+        raise AssertionError("model failure should raise")
+    except RuntimeError:
+        step = failing_trace.snapshot()[0]
+        assert step["status"] == "failed"
+        assert step["title"] == "Model request failed"
+        assert step["errorCode"] == "model_request_failed"
+
+    empty_trace = AgentTraceRecorder(run_id="run_invalid_model")
+    try:
+        AgentRunner(gateway=FakeGateway([{"role": "assistant", "content": None}])).run(
+            messages=[{"role": "user", "content": "x"}], config={},
+            registry=make_registry(), trace=empty_trace,
+        )
+        raise AssertionError("empty model response should raise")
+    except ValueError:
+        step = empty_trace.snapshot()[0]
+        assert step["status"] == "failed"
+        assert step["title"] == "Model response was invalid"
+        assert step["errorCode"] == "invalid_model_response"
+
     print("agent loop executes registered tools and stops safely")
 
 
