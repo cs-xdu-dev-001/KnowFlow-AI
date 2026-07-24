@@ -127,4 +127,8 @@ class McpOAuthStartIn(BaseModel):
     model_config = ConfigDict(extra='forbid')
     returnTo: str = Field(min_length=1, max_length=500)
 
+class AgentApprovalDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: Literal["allow_once", "deny"]
+
 McpServerIn = McpServerCreate

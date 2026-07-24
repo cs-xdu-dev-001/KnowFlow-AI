@@ -27,15 +27,20 @@ TRACE_STATUSES = {
     "cancelled",
 }
 SENSITIVE_KEYS = {
+    "accesstoken",
     "apikey",
     "authorization",
+    "clientsecret",
+    "codeverifier",
     "cookie",
+    "headers",
+    "refreshtoken",
     "secret",
     "token",
     "password",
 }
 SECRET_PATTERN = re.compile(
-    r"(?i)(tvly-[a-z0-9_-]+|bearer\s+[a-z0-9._-]+)"
+    r"(?i)(tvly-[a-z0-9_-]+|ntn_[a-z0-9_-]+|bearer\s+[a-z0-9._~+/-]+)"
 )
 
 
@@ -56,6 +61,8 @@ def _scrub_trace_value(value: Any) -> Any:
         }
     if isinstance(value, (list, tuple)):
         return [_scrub_trace_value(item) for item in value]
+    if isinstance(value, str):
+        return SECRET_PATTERN.sub("[REDACTED]", value)
     return value
 
 
@@ -110,9 +117,15 @@ class AgentTraceRecorder:
         title: str,
         parent_id: str | None = None,
         input_summary: Any = None,
+        status: str = "running",
+        details: dict[str, Any] | None = None,
     ) -> str:
         if kind not in TRACE_KINDS:
             raise ValueError(f"Unsupported trace kind: {kind}")
+        if status not in {"running", "waiting"}:
+            raise ValueError(
+                f"Unsupported initial trace status: {status}"
+            )
         step_id = f"step_{len(self.steps) + 1}"
         self.started[step_id] = self.clock()
         self._publish(
@@ -122,13 +135,14 @@ class AgentTraceRecorder:
                 "parentId": parent_id,
                 "kind": kind,
                 "name": name,
-                "status": "running",
+                "status": status,
                 "title": title,
                 "inputSummary": sanitize_trace_value(input_summary),
                 "outputSummary": None,
                 "errorCode": None,
                 "startedAt": datetime.now(timezone.utc).isoformat(),
                 "durationMs": None,
+                "details": _scrub_trace_value(details or {}),
             }
         )
         return step_id

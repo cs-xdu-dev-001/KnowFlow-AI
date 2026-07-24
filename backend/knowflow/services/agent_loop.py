@@ -83,7 +83,7 @@ class ToolRegistry:
 
 class AgentRunner:
     def __init__(self, *, gateway, max_tool_rounds=3): self.gateway=gateway; self.max_tool_rounds=max(0,max_tool_rounds)
-    def run(self, *, messages, config, registry, trace=None, parent_step_id=None):
+    def run(self, *, messages, config, registry, trace=None, parent_step_id=None, approval_gate=None):
         working=[dict(m) for m in messages]; executions=[]; schemas=registry.schemas()
         for tool_round in range(self.max_tool_rounds+1):
             ms=trace.start_step(kind="model",name="model_completion",title="Model is analyzing",parent_id=parent_step_id,input_summary={"messageCount":len(working),"toolCount":len(schemas)}) if trace else None
@@ -101,7 +101,21 @@ class AgentRunner:
             if tool_round>=self.max_tool_rounds: raise AgentLoopLimitError("Agent exceeded the maximum tool-call rounds.")
             working.append({"role":"assistant","content":message.get("content"),"tool_calls":calls})
             for call in calls:
-                prepared=registry.prepare(call); executions.append(registry.invoke(prepared)); ex=executions[-1]; d=prepared.definition
-                if trace:
-                    trace.finish_step(trace.start_step(kind=d.trace_kind if d else "tool",name=prepared.tool_name,title=f"Running {prepared.tool_name}",parent_id=parent_step_id,input_summary=(call.get("function") or {}).get("arguments")),status="success" if ex.status=="success" else "failed",title=f"{prepared.tool_name} completed" if ex.status=="success" else f"{prepared.tool_name} failed",output_summary=ex.output if ex.status=="success" else ex.error_message,error_code=None if ex.status=="success" else ex.error_code)
+                prepared=registry.prepare(call); d=prepared.definition; should_invoke=True
+                if prepared.error is None and d and not d.read_only:
+                    if approval_gate is None:
+                        ex=registry._failure(prepared.call_id,prepared.tool_name,prepared.arguments,"approval_required_stream_only","This tool requires approval in a streaming agent run.",time.perf_counter()); should_invoke=False
+                    else:
+                        decision=approval_gate.request(d,prepared.arguments,prepared.call_id)
+                        if decision!="allow_once":
+                            code="approval_timeout" if decision=="timeout" else "permission_denied"
+                            message="Tool approval timed out." if decision=="timeout" else "Tool execution was denied."
+                            ex=registry._failure(prepared.call_id,prepared.tool_name,prepared.arguments,code,message,time.perf_counter()); should_invoke=False
+                tool_step=None
+                if should_invoke and trace:
+                    tool_step=trace.start_step(kind=d.trace_kind if d else "tool",name=prepared.tool_name,title=f"Running {prepared.tool_name}",parent_id=parent_step_id,input_summary=prepared.arguments)
+                if should_invoke: ex=registry.invoke(prepared)
+                executions.append(ex)
+                if trace and tool_step:
+                    trace.finish_step(tool_step,status="success" if ex.status=="success" else "failed",title=f"{prepared.tool_name} completed" if ex.status=="success" else f"{prepared.tool_name} failed",output_summary=ex.output if ex.status=="success" else ex.error_message,error_code=None if ex.status=="success" else ex.error_code)
                 working.append({"role":"tool","tool_call_id":ex.call_id,"name":ex.tool_name,"content":ex.model_content()})

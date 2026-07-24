@@ -40,6 +40,7 @@ from .schemas import *
 from .services.tool_config import ToolConfigService
 from .services.mcp_config import McpConfigService
 from .services.mcp_oauth import McpOAuthCoordinator
+from .services.approval import ApprovalBroker
 
 
 
@@ -196,6 +197,10 @@ mcp_oauth = McpOAuthCoordinator(
     allow_private=MCP_ALLOW_PRIVATE_NETWORKS,
     timeout=MCP_REQUEST_TIMEOUT,
     max_bytes=MCP_MAX_RESPONSE_BYTES,
+)
+
+approval_broker = ApprovalBroker(
+    timeout_seconds=MCP_APPROVAL_TIMEOUT,
 )
 
 
