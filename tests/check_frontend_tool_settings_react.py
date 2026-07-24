@@ -26,7 +26,16 @@ def main() -> None:
     require("frontend/react/src/components/ToolsPage.jsx", "handleToolDelete", "tool configuration clear handler")
     require("frontend/react/src/components/ToolsPage.jsx", '{"原生工具"}', "registered native tool metric")
     require("frontend/react/src/components/ToolsPage.jsx", "MCP连接", "MCP inventory metric")
-    require("frontend/react/src/components/ToolsPage.jsx", "尚未连接MCP服务器", "MCP empty state")
+    require(
+        "frontend/react/src/components/ToolsPage.jsx",
+        "McpServerPanel",
+        "MCP server management workspace",
+    )
+    forbid(
+        "frontend/react/src/components/ToolsPage.jsx",
+        "尚未连接MCP服务器",
+        "legacy MCP empty state",
+    )
     require("frontend/react/src/components/ToolConfigPanel.jsx", "检查连接（1 credit）", "credit-aware connection action")
     require("frontend/react/src/components/ToolConfigPanel.jsx", 'type={"password"}', "masked tool key input")
     require("frontend/react/src/controller/chatFlow.js", "enableTools: true", "automatic tools enabled")

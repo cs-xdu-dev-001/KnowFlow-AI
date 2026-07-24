@@ -1,10 +1,12 @@
 import asyncio,re
+from urllib.parse import parse_qsl,urlencode,urlsplit,urlunsplit
 from fastapi import APIRouter,HTTPException,Request
 from fastapi.responses import RedirectResponse
 from ..runtime import *
 from ..schemas import McpServerCreate,McpServerUpdate,McpOAuthStartIn
 from ..services.mcp_security import validate_remote_url,validate_static_headers
 from ..services.mcp_client import McpRemoteClient
+from ..services.mcp_oauth import McpOAuthError
 router=APIRouter(); NOTION_URL='https://mcp.notion.com/mcp'
 def uid(r): return current_user_id(r)
 def owned(r,i):
@@ -18,6 +20,9 @@ def discover(user,s):
  elif s['authType']=='oauth': h.update(mcp_oauth.authorization_headers(user,s['id']))
  client=McpRemoteClient(str(s['id']),s['url'],server_name=s['slug'],headers=h,request_timeout=MCP_REQUEST_TIMEOUT,max_response_bytes=MCP_MAX_RESPONSE_BYTES,allow_private=MCP_ALLOW_PRIVATE_NETWORKS)
  return asyncio.run(client.initialize_and_list_tools()) if hasattr(client,'initialize_and_list_tools') else asyncio.run(client.discover_tools())
+def oauth_result_url(target,key,value):
+ parts=urlsplit(target); query=[(k,v) for k,v in parse_qsl(parts.query,keep_blank_values=True) if k not in ('mcpResult','mcpError')]; query.append((key,value))
+ return urlunsplit((parts.scheme,parts.netloc,parts.path,urlencode(query),parts.fragment))
 @router.get('/api/mcp/servers')
 def listing(request:Request): return api_success([out(x) for x in mcp_configs.list_for_user(uid(request))])
 @router.get('/api/mcp/servers/{server_id}')
@@ -46,14 +51,32 @@ def create(payload:McpServerCreate,request:Request):
  return api_success(mcp_configs.get_owned(user,x['id']))
 @router.patch('/api/mcp/servers/{server_id}')
 def update(server_id:int,payload:McpServerUpdate,request:Request):
- user=uid(request); s=owned(request,server_id); supplied=payload.model_fields_set; d=payload.model_dump(exclude_none=True); headers=payload.headers if 'headers' in supplied else None; en=d.pop('enabledTools',None); d.pop('clientId',None); d.pop('clientSecret',None)
+ user=uid(request); s=owned(request,server_id); supplied=payload.model_fields_set
+ connection_fields={'url','authType','headers','clientId','clientSecret'}
+ if s['slug']=='notion' and connection_fields & supplied: raise HTTPException(400,'Notion connection settings are fixed')
+ next_url=s['url']; next_auth=s['authType']
+ if 'url' in supplied:
+  try: next_url=validate_remote_url(payload.url)
+  except Exception as e: raise HTTPException(400,str(e))
+ if 'authType' in supplied: next_auth=payload.authType
+ headers=payload.headers if 'headers' in supplied else None
  if headers is not None:
   try: validate_static_headers(headers)
   except Exception as e: raise HTTPException(400,str(e))
- fields={k.replace('authType','auth_type'):v for k,v in d.items() if k in ('name','url','authType','enabled')}; mcp_configs.update_server(user,server_id,**fields)
- cred_changed=bool({'headers','clientId','clientSecret'} & supplied)
+ if 'headers' in supplied and next_auth!='headers': raise HTTPException(400,'Headers require headers authentication')
+ if {'clientId','clientSecret'} & supplied and next_auth!='oauth': raise HTTPException(400,'OAuth credentials require OAuth authentication')
+ url_changed=next_url!=s['url']; auth_changed=next_auth!=s['authType']; connection_changed=url_changed or auth_changed
+ d=payload.model_dump(exclude_none=True); en=d.pop('enabledTools',None); d.pop('headers',None); d.pop('clientId',None); d.pop('clientSecret',None)
+ if en is not None:
+  names={t.get('name',t) if isinstance(t,dict) else t for t in (s.get('tools') or [])}
+  vals=list(dict.fromkeys(en))
+  if len(vals)>MCP_MAX_EXPOSED_TOOLS or any(x not in names for x in vals): raise HTTPException(400,'Invalid enabled tools')
+ fields={k.replace('authType','auth_type'):v for k,v in d.items() if k in ('name','url','authType','enabled')}
+ if connection_changed: fields['enabled']=False
+ mcp_configs.update_server(user,server_id,**fields)
+ cred_changed=bool({'headers','clientId','clientSecret'} & supplied) or connection_changed
  if cred_changed:
-  old=(mcp_configs.secret(user,server_id) or {}).get('credentials') or {}
+  old={} if connection_changed else ((mcp_configs.secret(user,server_id) or {}).get('credentials') or {})
   if 'headers' in supplied:
    if headers: old['headers']=headers
    else: old.pop('headers',None)
@@ -64,11 +87,8 @@ def update(server_id:int,payload:McpServerUpdate,request:Request):
    if payload.clientSecret: old['client_secret']=payload.clientSecret
    else: old.pop('client_secret',None)
   mcp_configs.clear_credentials(user,server_id) if not old else mcp_configs.save_credentials(user,server_id,old)
- if en is not None:
-  names={t.get('name',t) if isinstance(t,dict) else t for t in (s.get('tools') or [])}
-  vals=list(dict.fromkeys(en))
-  if len(vals)>MCP_MAX_EXPOSED_TOOLS or any(x not in names for x in vals): raise HTTPException(400,'Invalid enabled tools')
-  mcp_configs.set_enabled_tools(user,server_id,vals)
+ if connection_changed: mcp_configs.set_status(user,server_id,'disconnected')
+ if en is not None: mcp_configs.set_enabled_tools(user,server_id,vals)
  return api_success(mcp_configs.get_owned(user,server_id))
 @router.delete('/api/mcp/servers/{server_id}')
 def delete(server_id:int,request:Request):
@@ -103,6 +123,10 @@ def oauth_callback(state:str,request:Request,code:str|None=None,error:str|None=N
  user=get_current_user(request)
  if not user: raise HTTPException(401,'Please sign in first.')
  try:r=mcp_oauth.complete_authorization(int(user['id']),state,code,error)
+ except McpOAuthError as exc:
+  target=exc.return_to
+  if target and is_allowed_oauth_return_url(target): return RedirectResponse(oauth_result_url(target,'mcpError',exc.code))
+  raise HTTPException(400,'Invalid OAuth state')
  except Exception: raise HTTPException(400,'Invalid OAuth state')
  target=(r.get('returnTo') or r.get('return_to') or BASE_URL) if isinstance(r,dict) else BASE_URL
- return RedirectResponse(target if is_allowed_oauth_return_url(target) else BASE_URL)
+ return RedirectResponse(oauth_result_url(target,'mcpResult','connected') if is_allowed_oauth_return_url(target) else BASE_URL)

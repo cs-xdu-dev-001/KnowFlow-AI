@@ -106,6 +106,21 @@ export const toolConfigApi = {
   delete: (toolName) => apiRequest(`/api/tool-configs/${toolName}`, { method: "DELETE" }),
 };
 
+export const mcpApi = {
+  list: () => apiRequest("/api/mcp/servers"),
+  create: (payload) => apiRequest("/api/mcp/servers", { method: "POST", body: payload }),
+  update: (id, payload) => apiRequest(`/api/mcp/servers/${id}`, { method: "PATCH", body: payload }),
+  delete: (id) => apiRequest(`/api/mcp/servers/${id}`, { method: "DELETE" }),
+  test: (id) => apiRequest(`/api/mcp/servers/${id}/test`, { method: "POST" }),
+  refreshTools: (id) => apiRequest(`/api/mcp/servers/${id}/refresh-tools`, { method: "POST" }),
+  disconnect: (id) => apiRequest(`/api/mcp/servers/${id}/disconnect`, { method: "POST" }),
+  startOAuth: (id, returnTo) =>
+    apiRequest(`/api/mcp/servers/${id}/oauth/start`, {
+      method: "POST",
+      body: { returnTo },
+    }),
+};
+
 export const runtimeApi = {
   get: () => apiRequest("/api/runtime"),
 };

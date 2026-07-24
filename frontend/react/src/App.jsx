@@ -43,9 +43,15 @@ function readInitialSidebarCollapsed() {
   return readStoredBoolean("knowflow.sidebarCollapsed", false);
 }
 
+function readInitialPage() {
+  if (typeof window === "undefined") return "chat";
+  const page = new URLSearchParams(window.location.search).get("page");
+  return page === "tools" || pageKeys.has(page) ? page : "chat";
+}
+
 function WorkbenchShell() {
   const { authenticated, loading } = useAuth();
-  const [activePage, setActivePage] = useState("chat");
+  const [activePage, setActivePage] = useState(readInitialPage);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readInitialSidebarCollapsed);
   const [drawerCollapsed, setDrawerCollapsed] = useState(() => readStoredBoolean("knowflow.drawerCollapsed", true));
   const shellLocked = loading || !authenticated;

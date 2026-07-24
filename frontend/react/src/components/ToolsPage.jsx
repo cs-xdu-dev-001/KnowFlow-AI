@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { toolConfigApi } from "../api/client.js";
 import { notifyError, notifyToast } from "./errorFeedback.js";
+import { McpServerPanel } from "./McpServerPanel.jsx";
 import { ToolConfigPanel } from "./ToolConfigPanel.jsx";
 
 export function ToolsPage({ active = false }) {
@@ -10,6 +11,7 @@ export function ToolsPage({ active = false }) {
     apiKey: "",
   });
   const [webSearchConfig, setWebSearchConfig] = useState(null);
+  const [mcpServerCount, setMcpServerCount] = useState(0);
 
   const loadToolConfigs = useCallback(async () => {
     try {
@@ -30,6 +32,33 @@ export function ToolsPage({ active = false }) {
   useEffect(() => {
     if (active) loadToolConfigs();
   }, [active, loadToolConfigs]);
+
+  useEffect(() => {
+    if (!active || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const mcpResult = url.searchParams.get("mcpResult");
+    const mcpError = url.searchParams.get("mcpError");
+    if (!mcpResult && !mcpError) return;
+    if (mcpResult) {
+      notifyToast("MCP授权已完成");
+    } else {
+      notifyToast(`MCP授权失败：${mcpError}`, {
+        duration: 4200,
+        tone: "error",
+      });
+    }
+    url.searchParams.delete("mcpResult");
+    url.searchParams.delete("mcpError");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  }, [active]);
+
+  const handleServersChange = useCallback((servers) => {
+    setMcpServerCount(Array.isArray(servers) ? servers.length : 0);
+  }, []);
 
   const handleToolChange = (event) => {
     const { checked, name, type, value } = event.target;
@@ -106,7 +135,7 @@ export function ToolsPage({ active = false }) {
             </div>
             <div>
               <span>{"MCP连接"}</span>
-              <strong>{"0"}</strong>
+              <strong>{mcpServerCount}</strong>
             </div>
           </section>
           <section className={"tool-inventory panel"} aria-label={"可用工具"}>
@@ -135,15 +164,10 @@ export function ToolsPage({ active = false }) {
             onSubmit={handleToolSubmit}
             onTest={handleToolTest}
           />
-          <section className={"mcp-panel panel"}>
-            <div className={"panel-title"}>
-              <h2>{"MCP服务器"}</h2>
-            </div>
-            <div className={"mcp-empty"}>
-              <strong>{"尚未连接MCP服务器"}</strong>
-              <span>{"后续接入的MCP会与原生工具一起显示在这里。"}</span>
-            </div>
-          </section>
+          <McpServerPanel
+            active={active}
+            onServersChange={handleServersChange}
+          />
         </div>
       </div>
     </section>

@@ -117,6 +117,8 @@ class McpServerCreate(BaseModel):
 class McpServerUpdate(BaseModel):
     model_config = ConfigDict(extra='forbid')
     name: str | None = Field(default=None, min_length=1, max_length=120)
+    url: str | None = Field(default=None, max_length=500)
+    authType: Literal["none", "headers", "oauth"] | None = None
     headers: dict[str, str] | None = None
     clientId: str | None = Field(default=None, max_length=255)
     clientSecret: str | None = Field(default=None, max_length=2048)

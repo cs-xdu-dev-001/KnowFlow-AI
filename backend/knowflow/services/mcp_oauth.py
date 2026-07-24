@@ -18,8 +18,15 @@ from .mcp_security import (
 
 
 class McpOAuthError(Exception):
-    def __init__(self, code: str, message: str | None = None):
+    def __init__(
+        self,
+        code: str,
+        message: str | None = None,
+        *,
+        return_to: str | None = None,
+    ):
         self.code = code
+        self.return_to = return_to
         super().__init__(message or code)
 
 
@@ -421,68 +428,74 @@ class McpOAuthCoordinator:
         )
         if not session:
             raise McpOAuthError("invalid_state")
-        if error or not code:
-            raise McpOAuthError("authorization_denied")
+        return_to = session.get("return_to")
+        try:
+            if error or not code:
+                raise McpOAuthError("authorization_denied")
 
-        session_payload = self.configs.decrypt_credentials(
-            session["pkce_verifier_cipher"]
-        )
-        server = self.configs.secret(
-            user_id,
-            session["server_id"],
-        )
-        if not server:
-            raise McpOAuthError("not_found")
-        metadata = session_payload.get("metadata") or {}
-        verifier = session_payload.get("verifier")
-        client_id = session_payload.get("client_id")
-        if not verifier or not client_id or not metadata.get(
-            "token_endpoint"
-        ):
-            raise McpOAuthError("invalid_state")
+            session_payload = self.configs.decrypt_credentials(
+                session["pkce_verifier_cipher"]
+            )
+            server = self.configs.secret(
+                user_id,
+                session["server_id"],
+            )
+            if not server:
+                raise McpOAuthError("not_found")
+            metadata = session_payload.get("metadata") or {}
+            verifier = session_payload.get("verifier")
+            client_id = session_payload.get("client_id")
+            if not verifier or not client_id or not metadata.get(
+                "token_endpoint"
+            ):
+                raise McpOAuthError("invalid_state")
 
-        form = {
-            "grant_type": "authorization_code",
-            "code": code,
-            "code_verifier": verifier,
-            "redirect_uri": self.redirect_uri,
-            "client_id": client_id,
-            "resource": server["url"],
-        }
-        if session_payload.get("client_secret"):
-            form["client_secret"] = session_payload["client_secret"]
-        token_response = self._request(
-            "POST",
-            metadata["token_endpoint"],
-            data=form,
-        )
-        if not self._is_success(token_response):
-            raise McpOAuthError("token_exchange_failed")
-        token = self._json_object(token_response)
-        credentials = self._merge_token(
-            server.get("credentials") or {},
-            token,
-        )
-        credentials["metadata"] = metadata
-        credentials["client_id"] = client_id
-        if session_payload.get("client_secret"):
-            credentials["client_secret"] = session_payload[
-                "client_secret"
-            ]
-        self.configs.save_credentials(
-            user_id,
-            session["server_id"],
-            credentials,
-        )
-        self.configs.set_status(
-            user_id,
-            session["server_id"],
-            "connected",
-        )
-        result = self.configs.get_owned(user_id, session["server_id"])
-        if result is not None:
-            result["returnTo"] = session.get("return_to")
-        return result
+            form = {
+                "grant_type": "authorization_code",
+                "code": code,
+                "code_verifier": verifier,
+                "redirect_uri": self.redirect_uri,
+                "client_id": client_id,
+                "resource": server["url"],
+            }
+            if session_payload.get("client_secret"):
+                form["client_secret"] = session_payload["client_secret"]
+            token_response = self._request(
+                "POST",
+                metadata["token_endpoint"],
+                data=form,
+            )
+            if not self._is_success(token_response):
+                raise McpOAuthError("token_exchange_failed")
+            token = self._json_object(token_response)
+            credentials = self._merge_token(
+                server.get("credentials") or {},
+                token,
+            )
+            credentials["metadata"] = metadata
+            credentials["client_id"] = client_id
+            if session_payload.get("client_secret"):
+                credentials["client_secret"] = session_payload[
+                    "client_secret"
+                ]
+            self.configs.save_credentials(
+                user_id,
+                session["server_id"],
+                credentials,
+            )
+            self.configs.set_status(
+                user_id,
+                session["server_id"],
+                "connected",
+            )
+            result = self.configs.get_owned(user_id, session["server_id"])
+            if result is not None:
+                result["returnTo"] = return_to
+            return result
+        except McpOAuthError as exc:
+            if exc.return_to is None:
+                exc.return_to = return_to
+            raise
 
     def _server(
         self,
