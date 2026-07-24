@@ -29,6 +29,11 @@ class ModelConfigUpdate(BaseModel):
     maxTokens: int | None = None
 
 
+class ToolConfigUpdate(BaseModel):
+    enabled: bool
+    apiKey: str | None = None
+
+
 class KnowledgeBaseIn(BaseModel):
     name: str = Field(min_length=1)
     description: str = ""

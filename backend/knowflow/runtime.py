@@ -37,6 +37,7 @@ from .config import *
 from .database import Database
 from .responses import *
 from .schemas import *
+from .services.tool_config import ToolConfigService
 
 
 
@@ -163,6 +164,15 @@ def execute(sql: str, params: dict[str, Any] | None = None) -> int | None:
             return int(result.lastrowid)
         except Exception:
             return None
+
+
+tool_configs = ToolConfigService(
+    fetch_one=fetch_one,
+    fetch_all=fetch_all,
+    execute=execute,
+    cipher=cipher,
+    now_str=now_str,
+)
 
 
 def post_model_json(url: str, headers: dict[str, str], payload: dict[str, Any], timeout: int | None = None) -> requests.Response:

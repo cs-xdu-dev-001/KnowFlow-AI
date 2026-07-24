@@ -12,6 +12,7 @@ CHECK_FILES = [
     "backend/knowflow/routers/extensions.py",
     "backend/knowflow/routers/knowledge.py",
     "backend/knowflow/routers/model_configs.py",
+    "backend/knowflow/routers/tool_configs.py",
     "backend/knowflow/services/document_parser.py",
     "backend/knowflow/services/model_gateway.py",
 ]
