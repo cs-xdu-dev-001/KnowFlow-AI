@@ -102,23 +102,28 @@ class LoginIn(BaseModel):
     account: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=1, max_length=128)
 
-class McpServerIn(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    slug: str | None = Field(default=None, min_length=1, max_length=80)
-    url: str = Field(min_length=1, max_length=500)
+class McpServerCreate(BaseModel):
+    preset: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    url: str | None = Field(default=None, max_length=500)
     authType: Literal["none", "headers", "oauth"] = "none"
-    headers: dict[str, str] = {}
+    headers: dict[str, str] | None = None
+    clientId: str | None = None
+    clientSecret: str | None = None
     enabled: bool = True
     enabledTools: list[str] = []
 
 class McpServerUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
-    slug: str | None = Field(default=None, min_length=1, max_length=80)
     url: str | None = Field(default=None, min_length=1, max_length=500)
     authType: Literal["none", "headers", "oauth"] | None = None
     headers: dict[str, str] | None = None
+    clientId: str | None = None
+    clientSecret: str | None = None
     enabled: bool | None = None
     enabledTools: list[str] | None = None
 
 class McpOAuthStartIn(BaseModel):
     returnTo: str = Field(min_length=1, max_length=500)
+
+McpServerIn = McpServerCreate

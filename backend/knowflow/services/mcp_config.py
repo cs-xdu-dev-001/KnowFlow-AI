@@ -67,7 +67,8 @@ class McpConfigService:
         return self.get_owned(user_id, server_id)
 
     def set_enabled_tools(self, user_id, server_id, enabled_tools):
-        vals = list(dict.fromkeys(enabled_tools or []))[:MCP_MAX_EXPOSED_TOOLS]
+        vals = list(dict.fromkeys(enabled_tools or []))
+        if len(vals) > MCP_MAX_EXPOSED_TOOLS: raise ValueError("too many enabled tools")
         self.execute("UPDATE mcp_server SET enabled_tools_json=:enabled_tools_json, updated_at=:updated_at WHERE id=:id AND user_id=:user_id", {"enabled_tools_json": json.dumps(vals, ensure_ascii=False), "updated_at": self.now_str(), "id": server_id, "user_id": user_id})
         return self.get_owned(user_id, server_id)
 

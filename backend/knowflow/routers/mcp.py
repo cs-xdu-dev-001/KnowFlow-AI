@@ -1,53 +1,96 @@
-import asyncio, re
-from fastapi import APIRouter, HTTPException, Request
+import asyncio,re
+from fastapi import APIRouter,HTTPException,Request
+from fastapi.responses import RedirectResponse
 from ..runtime import *
-from ..schemas import McpServerIn, McpServerUpdate
-from ..services.mcp_security import validate_remote_url, validate_static_headers
+from ..schemas import McpServerCreate,McpServerUpdate,McpOAuthStartIn
+from ..services.mcp_security import validate_remote_url,validate_static_headers
 from ..services.mcp_client import McpRemoteClient
-
-router=APIRouter(); NOTION_URL="https://mcp.notion.com/mcp"
+router=APIRouter(); NOTION_URL='https://mcp.notion.com/mcp'
 def uid(r): return current_user_id(r)
 def owned(r,i):
-    x=mcp_configs.get_owned(uid(r),i)
-    if not x: raise HTTPException(404,"MCP server not found")
-    return x
-def out(x):
-    x=dict(x); x.pop("userId",None); return x
-
-@router.get('/api/mcp',tags=['MCP'])
+ x=mcp_configs.get_owned(uid(r),i)
+ if not x: raise HTTPException(404,'MCP server not found')
+ return x
+def out(x): return x
+def discover(user,s):
+ sec=mcp_configs.secret(user,s['id']) or {}; c=sec.get('credentials') or {}; h={}
+ if s['authType']=='headers': h.update(c.get('headers') or {})
+ elif s['authType']=='oauth': h.update(mcp_oauth.authorization_headers(user,s['id']))
+ client=McpRemoteClient(str(s['id']),s['url'],server_name=s['slug'],headers=h,request_timeout=MCP_REQUEST_TIMEOUT,max_response_bytes=MCP_MAX_RESPONSE_BYTES,allow_private=MCP_ALLOW_PRIVATE_NETWORKS)
+ return asyncio.run(client.initialize_and_list_tools()) if hasattr(client,'initialize_and_list_tools') else asyncio.run(client.discover_tools())
+@router.get('/api/mcp/servers')
 def listing(request:Request): return api_success([out(x) for x in mcp_configs.list_for_user(uid(request))])
-@router.get('/api/mcp/{server_id}',tags=['MCP'])
-def detail(server_id:int,request:Request): return api_success(out(owned(request,server_id)))
-@router.post('/api/mcp',tags=['MCP'])
-def create(payload:McpServerIn,request:Request):
-    name,slug,url,auth=payload.name,payload.slug,payload.url,payload.authType
-    if name.lower()=='notion': name,slug,url,auth='Notion','notion',NOTION_URL,'oauth'
-    slug=slug or re.sub(r'[^a-z0-9-]+','-',name.lower()).strip('-')
-    try: url=validate_remote_url(url)
-    except Exception as e: raise HTTPException(400,str(e))
-    if auth=='headers':
-      try: validate_static_headers(payload.headers)
-      except Exception as e: raise HTTPException(400,str(e))
-    try: x=mcp_configs.create_server(uid(request),name=name,slug=slug,url=url,auth_type=auth,enabled=payload.enabled)
-    except Exception: raise HTTPException(409,'slug already exists')
-    if payload.headers: mcp_configs.save_credentials(uid(request),x['id'],{'headers':payload.headers})
-    if payload.enabledTools: mcp_configs.set_enabled_tools(uid(request),x['id'],payload.enabledTools)
-    return api_success(out(mcp_configs.get_owned(uid(request),x['id'])))
-@router.patch('/api/mcp/{server_id}',tags=['MCP'])
+@router.get('/api/mcp/servers/{server_id}')
+def detail(server_id:int,request:Request): return api_success(owned(request,server_id))
+@router.post('/api/mcp/servers')
+def create(payload:McpServerCreate,request:Request):
+ user=uid(request); notion=payload.preset=='notion'
+ name='Notion' if notion else payload.name; url=NOTION_URL if notion else payload.url; auth='oauth' if notion else payload.authType
+ if not name or not url: raise HTTPException(422,'name and url are required')
+ try: url=validate_remote_url(url)
+ except Exception as e: raise HTTPException(400,str(e))
+ headers=payload.headers or {}
+ if auth=='headers':
+  try: validate_static_headers(headers)
+  except Exception as e: raise HTTPException(400,str(e))
+ slug=re.sub(r'[^a-z0-9-]+','-',name.lower()).strip('-') or 'mcp'
+ base=slug; n=2
+ while any(x['slug']==slug for x in mcp_configs.list_for_user(user)): slug=f'{base}-{n}'; n+=1
+ x=mcp_configs.create_server(user,name=name,slug=slug,url=url,auth_type=auth,enabled=payload.enabled)
+ creds={};
+ if headers: creds['headers']=headers
+ if payload.clientId: creds['client_id']=payload.clientId
+ if payload.clientSecret: creds['client_secret']=payload.clientSecret
+ if creds: mcp_configs.save_credentials(user,x['id'],creds)
+ if payload.enabledTools: mcp_configs.set_enabled_tools(user,x['id'],payload.enabledTools)
+ return api_success(mcp_configs.get_owned(user,x['id']))
+@router.patch('/api/mcp/servers/{server_id}')
 def update(server_id:int,payload:McpServerUpdate,request:Request):
-    owned(request,server_id); d=payload.model_dump(exclude_none=True); headers=d.pop('headers',None); en=d.pop('enabledTools',None)
-    fields={'name':d.get('name'),'slug':d.get('slug'),'url':d.get('url'),'auth_type':d.get('authType'),'enabled':d.get('enabled')}; mcp_configs.update_server(uid(request),server_id,**{k:v for k,v in fields.items() if v is not None})
-    if headers is not None: mcp_configs.save_credentials(uid(request),server_id,{'headers':headers})
-    if en is not None: mcp_configs.set_enabled_tools(uid(request),server_id,en)
-    return api_success(out(mcp_configs.get_owned(uid(request),server_id)))
-@router.delete('/api/mcp/{server_id}',tags=['MCP'])
-def delete(server_id:int,request:Request): owned(request,server_id); mcp_configs.delete_server(uid(request),server_id); return api_success(True)
-@router.post('/api/mcp/{server_id}/disconnect',tags=['MCP'])
-def disconnect(server_id:int,request:Request): owned(request,server_id); mcp_configs.clear_credentials(uid(request),server_id); mcp_configs.update_server(uid(request),server_id,enabled=False); return api_success(mcp_configs.set_status(uid(request),server_id,'disconnected'))
-@router.post('/api/mcp/{server_id}/test',tags=['MCP'])
-@router.post('/api/mcp/{server_id}/refresh-tools',tags=['MCP'])
+ user=uid(request); s=owned(request,server_id); d=payload.model_dump(exclude_none=True); headers=d.pop('headers',None); en=d.pop('enabledTools',None); d.pop('clientId',None); d.pop('clientSecret',None)
+ if 'url' in d:
+  try:d['url']=validate_remote_url(d['url'])
+  except Exception as e: raise HTTPException(400,str(e))
+ if headers is not None:
+  try: validate_static_headers(headers)
+  except Exception as e: raise HTTPException(400,str(e))
+ fields={k.replace('authType','auth_type'):v for k,v in d.items() if k in ('name','url','authType','enabled')}; mcp_configs.update_server(user,server_id,**fields)
+ if headers is not None or payload.clientId or payload.clientSecret:
+  old=(mcp_configs.secret(user,server_id) or {}).get('credentials') or {}; old.update({'headers':headers} if headers is not None else {}); old.update({'client_id':payload.clientId} if payload.clientId else {}); old.update({'client_secret':payload.clientSecret} if payload.clientSecret else {}); mcp_configs.save_credentials(user,server_id,old)
+ if en is not None: mcp_configs.set_enabled_tools(user,server_id,en)
+ return api_success(mcp_configs.get_owned(user,server_id))
+@router.delete('/api/mcp/servers/{server_id}')
+def delete(server_id:int,request:Request):
+ user=uid(request); s=owned(request,server_id)
+ if s['authType']=='oauth':
+  try:mcp_oauth.revoke_credentials(user,server_id)
+  except Exception: pass
+ mcp_configs.clear_credentials(user,server_id); mcp_configs.delete_server(user,server_id); return api_success(True)
+@router.post('/api/mcp/servers/{server_id}/disconnect')
+def disconnect(server_id:int,request:Request):
+ user=uid(request); s=owned(request,server_id)
+ if s['authType']=='oauth':
+  try:mcp_oauth.revoke_credentials(user,server_id)
+  except Exception: pass
+ mcp_configs.clear_credentials(user,server_id); mcp_configs.update_server(user,server_id,enabled=False); return api_success(mcp_configs.set_status(user,server_id,'disconnected'))
+@router.post('/api/mcp/servers/{server_id}/test')
+@router.post('/api/mcp/servers/{server_id}/refresh-tools')
 def refresh(server_id:int,request:Request):
-    s=owned(request,server_id); sec=mcp_configs.secret(uid(request),server_id) or {}; c=sec.get('credentials') or {}; headers=c.get('headers',{}) if s['authType']=='headers' else {}
-    try: tools=asyncio.run(McpRemoteClient(str(server_id),s['url'],server_name=s['slug'],headers=headers,request_timeout=MCP_REQUEST_TIMEOUT,max_response_bytes=MCP_MAX_RESPONSE_BYTES,allow_private=MCP_ALLOW_PRIVATE_NETWORKS).discover_tools())
-    except Exception as e: mcp_configs.set_status(uid(request),server_id,'error',error_code='mcp_discovery_failed'); raise HTTPException(502,'MCP connection failed')
-    return api_success(mcp_configs.save_tool_snapshot(uid(request),server_id,tools))
+ user=uid(request); s=owned(request,server_id)
+ try: tools=discover(user,s)
+ except Exception: mcp_configs.set_status(user,server_id,'error',error_code='mcp_discovery_failed'); raise HTTPException(502,'MCP connection failed')
+ return api_success(mcp_configs.save_tool_snapshot(user,server_id,tools))
+@router.post('/api/mcp/servers/{server_id}/oauth/start')
+def oauth_start(server_id:int,payload:McpOAuthStartIn,request:Request):
+ user=uid(request); owned(request,server_id)
+ if not is_allowed_oauth_return_url(payload.returnTo): raise HTTPException(400,'Invalid return URL')
+ try:r=mcp_oauth.start_authorization(user,server_id,payload.returnTo)
+ except Exception: raise HTTPException(502,'OAuth unavailable')
+ return RedirectResponse(r['authorization_url'])
+@router.get('/api/mcp/oauth/callback')
+def oauth_callback(state:str,request:Request,code:str|None=None,error:str|None=None):
+ user=getattr(request.state,'current_user',None)
+ if not user: raise HTTPException(401,'Please sign in first.')
+ try:r=mcp_oauth.complete_authorization(int(user['id']),state,code,error)
+ except Exception: raise HTTPException(400,'Invalid OAuth state')
+ target=r.get('return_to','/') if isinstance(r,dict) else '/'
+ return RedirectResponse(target if is_allowed_oauth_return_url(target) else '/')
