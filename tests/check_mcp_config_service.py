@@ -9,7 +9,7 @@ class C:
  def encrypt(self,v): return self.f.encrypt(v.encode()).decode()
  def decrypt(self,v):
   try:return self.f.decrypt((v or '').encode()).decode()
- except:return ''
+  except:return ''
 class ThrowingCipher:
  def decrypt(self,v): raise RuntimeError('boom')
 
