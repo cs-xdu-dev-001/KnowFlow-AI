@@ -4,7 +4,13 @@ import { bindReactControllerEvents } from "./bridgeBindings.js";
 import { createCatalogSync } from "./catalogSync.js";
 import { createChatFlow } from "./chatFlow.js";
 import { state, messageRetryRequests } from "./controllerState.js";
-import { appendReactMessage, dispatchReactMessagesReset, updateReactMessageContent, updateReactMessageThinking } from "./messageEvents.js";
+import {
+  appendReactMessage,
+  dispatchReactMessagesReset,
+  updateReactMessageContent,
+  updateReactMessageThinking,
+  updateReactMessageTrace,
+} from "./messageEvents.js";
 import {
   notifyReactAuthStateUpdated,
   notifyReactKnowledgeOptionsUpdated,
@@ -47,6 +53,17 @@ function renderRagQuality(ragQuality, retrievalRun) {
 
 function renderToolTimeline(calls) {
   dispatchReactEvent("knowflow:react-tool-timeline-updated", { toolCalls: calls });
+}
+
+function renderAgentTrace(message, trace) {
+  updateReactMessageTrace(message, trace);
+  dispatchReactEvent(
+    "knowflow:react-agent-trace-updated",
+    {
+      messageId: message?.messageId || "",
+      trace: Array.isArray(trace) ? trace : [],
+    },
+  );
 }
 
 function renderAttachmentTray() {
@@ -116,6 +133,7 @@ const chatFlow = createChatFlow({
   setMessageThinking,
   setSending,
   renderActiveSession,
+  renderAgentTrace,
   renderAttachmentTray,
   renderReferences,
   renderRagQuality,

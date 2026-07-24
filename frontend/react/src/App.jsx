@@ -93,13 +93,19 @@ function WorkbenchShell() {
       writeStoredBoolean("knowflow.drawerCollapsed", true);
       setDrawerCollapsed(true);
     };
+    const openDrawer = () => {
+      writeStoredBoolean("knowflow.drawerCollapsed", false);
+      setDrawerCollapsed(false);
+    };
     window.addEventListener("knowflow:react-sidebar-toggle", toggleSidebar);
     window.addEventListener("knowflow:react-drawer-toggle", toggleDrawer);
     window.addEventListener("knowflow:react-drawer-close", closeDrawer);
+    window.addEventListener("knowflow:react-drawer-open", openDrawer);
     return () => {
       window.removeEventListener("knowflow:react-sidebar-toggle", toggleSidebar);
       window.removeEventListener("knowflow:react-drawer-toggle", toggleDrawer);
       window.removeEventListener("knowflow:react-drawer-close", closeDrawer);
+      window.removeEventListener("knowflow:react-drawer-open", openDrawer);
     };
   }, []);
 

@@ -13,6 +13,32 @@ async function readStreamError(response) {
   }
 }
 
+function mergeTraceStep(trace, step) {
+  const next = Array.isArray(trace) ? [...trace] : [];
+  const index = next.findIndex(
+    (item) => item.stepId === step.stepId,
+  );
+  if (index >= 0) {
+    next[index] = { ...next[index], ...step };
+  } else {
+    next.push(step);
+  }
+  return next;
+}
+
+function markTraceInterrupted(trace) {
+  return (Array.isArray(trace) ? trace : []).map((step) =>
+    step.status === "running"
+      ? {
+          ...step,
+          status: "failed",
+          title: "连接中断",
+          errorCode: "stream_interrupted",
+        }
+      : step,
+  );
+}
+
 export function createChatFlow({
   state,
   messageRetryRequests,
@@ -24,6 +50,7 @@ export function createChatFlow({
   setMessageThinking,
   setSending,
   renderActiveSession,
+  renderAgentTrace,
   renderAttachmentTray,
   renderReferences,
   renderRagQuality,
@@ -36,7 +63,17 @@ export function createChatFlow({
   async function continueSession(sessionId) {
     const messages = await request(`/api/sessions/${sessionId}/messages`);
     clearChatMessages(false);
-    messages.forEach((message) => appendMessage(message.role, message.content));
+    messages.forEach((message) =>
+      appendMessage(
+        message.role,
+        message.content,
+        {
+          trace: Array.isArray(message.trace)
+            ? message.trace
+            : [],
+        },
+      ),
+    );
     state.currentSessionId = sessionId;
     renderActiveSession();
     requestReactSessionsRefresh();
@@ -49,6 +86,7 @@ export function createChatFlow({
     clearChatMessages(true);
     renderReferences([]);
     renderToolTimeline([]);
+    renderAgentTrace(null, []);
     requestComposerReset({ focus: true });
     state.chatAttachments = [];
     renderAttachmentTray();
@@ -141,6 +179,8 @@ export function createChatFlow({
     }
 
     let answerBuffer = "";
+    let trace = [];
+    let receivedDone = false;
     const controller = new AbortController();
     state.activeChatController = controller;
     setSending(true);
@@ -179,6 +219,10 @@ export function createChatFlow({
           const dataLine = event.split("\n").find((line) => line.startsWith("data: "));
           if (!dataLine) continue;
           const eventPayload = JSON.parse(dataLine.slice(6));
+          if (eventPayload.type === "agent_step") {
+            trace = mergeTraceStep(trace, eventPayload);
+            renderAgentTrace(answer, trace);
+          }
           if (eventPayload.type === "answer") {
             answerBuffer += eventPayload.content || "";
             setMessageContent(answer, "assistant", answerBuffer);
@@ -195,11 +239,27 @@ export function createChatFlow({
             renderRagQuality(eventPayload.ragQuality, eventPayload.retrievalRun);
             openRetrievalDrawerFromRun(eventPayload.retrievalRun);
           }
+          if (eventPayload.type === "error") {
+            trace = markTraceInterrupted(trace);
+            renderAgentTrace(answer, trace);
+            throw new Error(
+              eventPayload.message || "Agent运行失败。",
+            );
+          }
           if (eventPayload.type === "done") {
+            receivedDone = true;
+            if (Array.isArray(eventPayload.trace)) {
+              trace = eventPayload.trace;
+              renderAgentTrace(answer, trace);
+            }
             state.currentSessionId = eventPayload.sessionId;
             renderActiveSession();
           }
         }
+      }
+      if (!receivedDone && trace.length) {
+        trace = markTraceInterrupted(trace);
+        renderAgentTrace(answer, trace);
       }
       if (answer.thinking) {
         setMessageContent(answer, "assistant", answerBuffer || "模型没有返回内容。");
@@ -211,6 +271,10 @@ export function createChatFlow({
       }
       requestReactSessionsRefresh();
     } catch (error) {
+      if (trace.length) {
+        trace = markTraceInterrupted(trace);
+        renderAgentTrace(answer, trace);
+      }
       if (controller.signal.aborted || error?.name === "AbortError") {
         setMessageContent(answer, "assistant", answerBuffer || "生成已停止。");
       } else {

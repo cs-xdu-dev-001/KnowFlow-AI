@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { renderMarkdown } from "../controller/markdown.js";
+import { AgentTraceStrip } from "./AgentTraceStrip.jsx";
 
 const actionEvents = {
   copy: "knowflow:react-message-copy",
@@ -11,6 +12,7 @@ function MessageBubble({ message }) {
   const bubbleClassName = [
     "message",
     message.role,
+    message.trace?.length ? "has-agent-trace" : "",
     message.thinking ? "thinking" : "",
     message.streaming ? "streaming" : "",
   ]
@@ -23,20 +25,32 @@ function MessageBubble({ message }) {
     "aria-busy": message.thinking ? "true" : undefined,
   };
 
-  if (message.thinking) {
+  if (message.role === "assistant") {
     return (
       <div {...props}>
-        <div className={"thinking-indicator"} aria-label={"模型正在思考"}>
-          <span></span>
-          <span></span>
-          <span></span>
-        </div>
+        <AgentTraceStrip
+          messageId={message.id}
+          trace={message.trace}
+        />
+        {message.thinking ? (
+          <div
+            className={"thinking-indicator"}
+            aria-label={"模型正在处理"}
+          >
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+        ) : (
+          <div
+            className={"message-markdown"}
+            dangerouslySetInnerHTML={{
+              __html: renderMarkdown(message.rawContent),
+            }}
+          />
+        )}
       </div>
     );
-  }
-
-  if (message.role === "assistant") {
-    return <div {...props} dangerouslySetInnerHTML={{ __html: renderMarkdown(message.rawContent) }} />;
   }
 
   return <div {...props}>{message.rawContent}</div>;
@@ -102,6 +116,9 @@ export function ChatMessages() {
       thinking: Boolean(payload.thinking),
       streaming: Boolean(payload.streaming),
       retryable: Boolean(payload.retryable),
+      trace: Array.isArray(payload.trace)
+        ? payload.trace
+        : [],
     };
   };
   const updateMessage = (messageId, updater) => {
@@ -213,16 +230,32 @@ export function ChatMessages() {
       detail.bubble = result.bubble;
       detail.handled = result.handled;
     };
+    const handleTrace = (event) => {
+      const detail = event.detail || {};
+      if (!detail.messageId) return;
+      const result = updateMessage(
+        detail.messageId,
+        (message) => ({
+          ...message,
+          trace: Array.isArray(detail.trace)
+            ? detail.trace
+            : [],
+        }),
+      );
+      detail.handled = result.handled;
+    };
 
     window.addEventListener("knowflow:react-message-append", handleAppend);
     window.addEventListener("knowflow:react-messages-reset", handleReset);
     window.addEventListener("knowflow:react-message-content", handleContent);
     window.addEventListener("knowflow:react-message-thinking", handleThinking);
+    window.addEventListener("knowflow:react-message-trace", handleTrace);
     return () => {
       window.removeEventListener("knowflow:react-message-append", handleAppend);
       window.removeEventListener("knowflow:react-messages-reset", handleReset);
       window.removeEventListener("knowflow:react-message-content", handleContent);
       window.removeEventListener("knowflow:react-message-thinking", handleThinking);
+      window.removeEventListener("knowflow:react-message-trace", handleTrace);
     };
   }, []);
 

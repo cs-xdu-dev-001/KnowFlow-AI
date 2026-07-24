@@ -12,6 +12,7 @@ export function appendReactMessage(role, content, options = {}) {
     thinking: message.thinking,
     streaming: message.streaming,
     retryable: message.retryable,
+    trace: Array.isArray(options.trace) ? options.trace : [],
   };
   window.dispatchEvent(new CustomEvent("knowflow:react-message-append", { detail }));
   message.messageId = detail.messageId || "";
@@ -45,6 +46,22 @@ export function updateReactMessageThinking(message, enabled) {
   const handled = Boolean(detail.handled);
   if (handled) message.thinking = Boolean(enabled);
   return handled;
+}
+
+export function updateReactMessageTrace(message, trace) {
+  const messageId = message?.messageId || "";
+  if (!messageId) return false;
+  const detail = {
+    messageId,
+    trace: Array.isArray(trace) ? trace : [],
+  };
+  window.dispatchEvent(
+    new CustomEvent(
+      "knowflow:react-message-trace",
+      { detail },
+    ),
+  );
+  return Boolean(detail.handled);
 }
 
 export function dispatchReactMessagesReset(showWelcome = false) {

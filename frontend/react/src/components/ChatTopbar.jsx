@@ -7,7 +7,7 @@ export function ChatTopbar() {
         <h1>{"问答"}</h1>
       </div>
       <div className={"chat-topbar-actions"}>
-        <button id={"inspector-toggle"} type={"button"} onClick={handleDrawerToggle}>{"引用"}</button>
+        <button id={"inspector-toggle"} type={"button"} onClick={handleDrawerToggle}>{"运行"}</button>
         <button id={"refresh-btn"} type={"button"} onClick={handleRefresh}>{"刷新"}</button>
       </div>
     </header>
