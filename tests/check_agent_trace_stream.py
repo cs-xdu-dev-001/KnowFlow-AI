@@ -195,6 +195,7 @@ def main() -> None:
         for event in events
         if event.get("type") == "done"
     )
+    assert done["runId"] == steps[0]["runId"]
     assert done["trace"]
     assert all(
         step["status"] in {

@@ -1,19 +1,53 @@
 import json
 from collections.abc import Callable, Iterable
 from queue import Queue
-from threading import Thread
+from threading import Event, Thread
 from typing import Any
+import uuid
 
 from fastapi import APIRouter
 
 from ..runtime import *
 from ..services.agent_loop import AgentRunner, ToolRegistry
-from ..services.agent_trace import AgentTraceRecorder
+from ..services.agent_trace import (
+    AgentTraceRecorder,
+    sanitize_trace_value,
+)
+from ..services.approval import AgentApprovalGate
+from ..services.mcp_client import (
+    McpClientError,
+    McpRunSessionPool,
+)
 from ..services.web_search import TavilyWebSearch, WebSearchArguments
 
 router = APIRouter()
 
 EXTENSION_TAGS = ["Extensions"]
+
+
+class McpToolConfigurationError(RuntimeError):
+    code = "mcp_tool_configuration_invalid"
+
+
+class AgentRunCancelled(RuntimeError):
+    code = "agent_run_cancelled"
+
+
+def _raise_if_cancelled(cancel_event: Event | None) -> None:
+    if cancel_event and cancel_event.is_set():
+        raise AgentRunCancelled("Agent run was cancelled.")
+
+
+class _CancellationAwareGateway:
+    def __init__(self, delegate, cancel_event: Event | None):
+        self.delegate = delegate
+        self.cancel_event = cancel_event
+
+    def complete(self, *args, **kwargs):
+        _raise_if_cancelled(self.cancel_event)
+        result = self.delegate.complete(*args, **kwargs)
+        _raise_if_cancelled(self.cancel_event)
+        return result
 
 
 def normalize_sync_task(row: dict[str, Any] | None) -> dict[str, Any]:
@@ -31,7 +65,132 @@ def make_web_search_provider(api_key: str) -> TavilyWebSearch:
     )
 
 
-def build_tool_registry(user_id: int, enable_tools: bool) -> ToolRegistry:
+def tool_risk(tool: dict[str, Any]) -> str:
+    annotations = tool.get("annotations") or {}
+    if annotations.get("destructiveHint") is True:
+        return "destructive"
+    if annotations.get("readOnlyHint") is True:
+        return "read"
+    if annotations.get("readOnlyHint") is False:
+        return "write"
+    return "unknown"
+
+
+def _safe_public_value(value: Any) -> Any:
+    summary = sanitize_trace_value(value, max_chars=4000)
+    if summary is None:
+        return None
+    try:
+        return json.loads(summary)
+    except json.JSONDecodeError:
+        return {"summary": summary}
+
+
+def _exception_code(exc: Exception) -> str:
+    code = str(getattr(exc, "code", "") or "").lower()
+    status_code = getattr(exc, "status_code", None)
+    response = getattr(exc, "response", None)
+    response_status = getattr(response, "status_code", None)
+    values = [
+        code,
+        str(status_code or ""),
+        str(response_status or ""),
+        str(exc).lower(),
+    ]
+    return " ".join(value for value in values if value)
+
+
+def _is_unauthorized(exc: Exception) -> bool:
+    code = _exception_code(exc)
+    return "401" in code or "unauthorized" in code
+
+
+def _is_transient_connection_error(exc: Exception) -> bool:
+    code = _exception_code(exc)
+    return any(
+        marker in code
+        for marker in (
+            "connection",
+            "connect",
+            "timeout",
+            "temporarily unavailable",
+            "transport",
+        )
+    )
+
+
+def call_mcp_tool(
+    *,
+    pool: McpRunSessionPool,
+    oauth,
+    user_id: int,
+    server_id: int,
+    remote_name: str,
+    arguments: dict[str, Any],
+    read_only: bool,
+    cancel_event: Event | None = None,
+) -> dict[str, Any]:
+    def invoke() -> dict[str, Any]:
+        _raise_if_cancelled(cancel_event)
+        result = pool.call_tool(
+            server_id,
+            remote_name,
+            arguments,
+        )
+        _raise_if_cancelled(cancel_event)
+        safe = _safe_public_value(result)
+        if isinstance(safe, dict):
+            return safe
+        return {"content": str(safe or "")}
+
+    try:
+        return invoke()
+    except Exception as exc:
+        if _is_unauthorized(exc):
+            oauth.ensure_access_token(
+                user_id,
+                server_id,
+                force_refresh=True,
+            )
+            _raise_if_cancelled(cancel_event)
+            pool.invalidate(server_id)
+            return invoke()
+        if read_only and _is_transient_connection_error(exc):
+            _raise_if_cancelled(cancel_event)
+            pool.invalidate(server_id)
+            return invoke()
+        raise
+
+
+def _load_mcp_server(user_id: int, server_id: int) -> dict[str, Any]:
+    server = mcp_configs.secret(user_id, server_id)
+    if (
+        not server
+        or not bool(server.get("enabled"))
+        or server.get("status") != "connected"
+    ):
+        raise McpClientError(
+            "MCP server is unavailable.",
+            "mcp_server_unavailable",
+        )
+    credentials = dict(server.get("credentials") or {})
+    headers = dict(credentials.get("headers") or {})
+    if server.get("auth_type") == "oauth":
+        headers.update(
+            mcp_oauth.authorization_headers(user_id, server_id)
+        )
+    credentials["headers"] = headers
+    return {**server, "credentials": credentials}
+
+
+def build_tool_registry(
+    user_id: int,
+    enable_tools: bool,
+    *,
+    mcp_pool: McpRunSessionPool | None = None,
+    approval_gate: AgentApprovalGate | None = None,
+    cancel_event: Event | None = None,
+) -> ToolRegistry:
     registry = ToolRegistry()
     config = (
         tool_configs.secret(
@@ -42,21 +201,102 @@ def build_tool_registry(user_id: int, enable_tools: bool) -> ToolRegistry:
         if enable_tools
         else None
     )
-    if not config:
+    registered_names: set[str] = set()
+    if config:
+        provider = make_web_search_provider(config["api_key"])
+
+        def run_web_search(args: WebSearchArguments):
+            _raise_if_cancelled(cancel_event)
+            result = provider.search(args.query, args.top_k)
+            _raise_if_cancelled(cancel_event)
+            return {"results": result}
+
+        registry.register(
+            name="web_search",
+            description=(
+                "Search the public web for current or external information "
+                "and return source URLs."
+            ),
+            arguments_model=WebSearchArguments,
+            handler=run_web_search,
+            read_only=True,
+        )
+        registered_names.add("web_search")
+    if not enable_tools or mcp_pool is None:
         return registry
-    provider = make_web_search_provider(config["api_key"])
-    registry.register(
-        name="web_search",
-        description=(
-            "Search the public web for current or external information "
-            "and return source URLs."
-        ),
-        arguments_model=WebSearchArguments,
-        handler=lambda args: {
-            "results": provider.search(args.query, args.top_k)
-        },
-        read_only=True,
-    )
+
+    enabled_tools: list[dict[str, Any]] = []
+    for server in mcp_configs.list_for_user(user_id):
+        if (
+            not server["enabled"]
+            or server["status"] != "connected"
+        ):
+            continue
+        selected = set(server.get("enabledTools") or [])
+        for tool in server.get("tools") or []:
+            if (
+                not isinstance(tool, dict)
+                or tool.get("name") not in selected
+            ):
+                continue
+            enabled_tools.append(
+                {
+                    **tool,
+                    "serverId": server["id"],
+                    "serverName": server["name"],
+                    "remoteName": (
+                        tool.get("remoteName") or tool.get("name")
+                    ),
+                }
+            )
+    if len(enabled_tools) > MCP_MAX_EXPOSED_TOOLS:
+        raise McpToolConfigurationError(
+            "Too many MCP tools are enabled."
+        )
+
+    for tool in enabled_tools:
+        name = str(tool.get("modelName") or "")
+        remote_name = str(tool.get("remoteName") or "")
+        input_schema = tool.get("inputSchema")
+        if (
+            not name
+            or not remote_name
+            or not isinstance(input_schema, dict)
+            or name in registered_names
+        ):
+            raise McpToolConfigurationError(
+                "The MCP tool snapshot is invalid."
+            )
+        read_only = (
+            (tool.get("annotations") or {}).get("readOnlyHint")
+            is True
+            and (tool.get("annotations") or {}).get(
+                "destructiveHint"
+            )
+            is not True
+        )
+        registry.register(
+            name=name,
+            description=str(tool.get("description") or "")[:1000],
+            input_schema=input_schema,
+            handler=lambda args, item=tool, safe_read=read_only: (
+                call_mcp_tool(
+                    pool=mcp_pool,
+                    oauth=mcp_oauth,
+                    user_id=user_id,
+                    server_id=int(item["serverId"]),
+                    remote_name=str(item["remoteName"]),
+                    arguments=args,
+                    read_only=safe_read,
+                    cancel_event=cancel_event,
+                )
+            ),
+            read_only=read_only,
+            trace_kind="mcp",
+            risk=tool_risk(tool),
+            server_name=str(tool["serverName"]),
+        )
+        registered_names.add(name)
     return registry
 
 
@@ -65,6 +305,9 @@ def execute_agent_chat(
     user_id: int,
     *,
     trace_emit: Callable[[dict[str, Any]], None] | None = None,
+    approval_emit: Callable[[dict[str, Any]], None] | None = None,
+    run_id: str | None = None,
+    cancel_event: Event | None = None,
 ) -> dict[str, Any]:
     use_rag = bool(payload.knowledgeBaseId) or payload.useRag
     if use_rag and not payload.knowledgeBaseId:
@@ -74,7 +317,10 @@ def execute_agent_chat(
     session_id = ensure_session(payload.sessionId, payload.knowledgeBaseId, payload.chatModelConfigId, user_id)
     save_message(session_id, "user", payload.question)
     history = get_recent_history(session_id)
-    trace = AgentTraceRecorder(emit=trace_emit)
+    trace = AgentTraceRecorder(
+        emit=trace_emit,
+        run_id=run_id,
+    )
     root_step = trace.start_step(
         kind="system",
         name="agent_run",
@@ -122,64 +368,117 @@ def execute_agent_chat(
             "chat",
             user_id,
         )
-        registry = build_tool_registry(
-            user_id,
-            payload.enableTools,
-        )
-        messages = build_messages(
-            payload.question,
-            chunks,
-            history,
-            agent_mode=bool(registry.schemas()),
-            use_rag=use_rag,
-            chat_config=chat_config,
-            attachments=payload.attachments,
-        )
-        try:
-            run_result = AgentRunner(
-                gateway=gateway,
-                max_tool_rounds=3,
-            ).run(
-                messages=messages,
-                config=chat_config,
-                registry=registry,
-                trace=trace,
-                parent_step_id=root_step,
-            )
-            answer = run_result.answer
-        except Exception as exc:
-            run_result = None
-            trace.finish_step(
-                root_step,
-                status="failed",
-                title="Agent run failed",
-                error_code="agent_run_failed",
-            )
-            if has_remote_model_config(chat_config):
-                answer = remote_model_error_answer(chat_config, exc)
-            else:
-                answer = fallback_answer(
-                    payload.question,
-                    chunks,
-                    history,
-                    agent_mode=bool(registry.schemas()),
-                    use_rag=use_rag,
-                    attachments=payload.attachments,
+        _raise_if_cancelled(cancel_event)
+        with McpRunSessionPool(
+            server_loader=lambda server_id: _load_mcp_server(
+                user_id,
+                int(server_id),
+            ),
+            oauth=mcp_oauth,
+            connect_timeout=MCP_CONNECT_TIMEOUT,
+            request_timeout=MCP_REQUEST_TIMEOUT,
+            max_response_bytes=MCP_MAX_RESPONSE_BYTES,
+            allow_private=MCP_ALLOW_PRIVATE_NETWORKS,
+        ) as mcp_pool:
+            approval_gate = (
+                AgentApprovalGate(
+                    broker=approval_broker,
+                    user_id=user_id,
+                    run_id=trace.run_id,
+                    emit=approval_emit,
+                    trace=trace,
+                    parent_step_id=root_step,
                 )
+                if approval_emit
+                else None
+            )
+            registry = build_tool_registry(
+                user_id,
+                payload.enableTools,
+                mcp_pool=mcp_pool,
+                approval_gate=approval_gate,
+                cancel_event=cancel_event,
+            )
+            messages = build_messages(
+                payload.question,
+                chunks,
+                history,
+                agent_mode=bool(registry.schemas()),
+                use_rag=use_rag,
+                chat_config=chat_config,
+                attachments=payload.attachments,
+            )
+            try:
+                run_result = AgentRunner(
+                    gateway=_CancellationAwareGateway(
+                        gateway,
+                        cancel_event,
+                    ),
+                    max_tool_rounds=3,
+                ).run(
+                    messages=messages,
+                    config=chat_config,
+                    registry=registry,
+                    trace=trace,
+                    parent_step_id=root_step,
+                    approval_gate=approval_gate,
+                )
+                _raise_if_cancelled(cancel_event)
+                answer = run_result.answer
+            except Exception as exc:
+                if isinstance(exc, AgentRunCancelled):
+                    raise
+                run_result = None
+                trace.finish_step(
+                    root_step,
+                    status="failed",
+                    title="Agent run failed",
+                    error_code="agent_run_failed",
+                )
+                if has_remote_model_config(chat_config):
+                    answer = remote_model_error_answer(
+                        chat_config,
+                        exc,
+                    )
+                else:
+                    answer = fallback_answer(
+                        payload.question,
+                        chunks,
+                        history,
+                        agent_mode=bool(registry.schemas()),
+                        use_rag=use_rag,
+                        attachments=payload.attachments,
+                    )
+        _raise_if_cancelled(cancel_event)
         if run_result:
             for execution in run_result.executions:
+                safe_arguments = _safe_public_value(
+                    execution.arguments
+                )
+                if not isinstance(safe_arguments, dict):
+                    safe_arguments = {
+                        "summary": str(safe_arguments or "")
+                    }
+                safe_output = (
+                    sanitize_trace_value(
+                        execution.output,
+                        max_chars=4000,
+                    )
+                    or ""
+                )
+                safe_error = sanitize_trace_value(
+                    execution.error_message,
+                    max_chars=1000,
+                )
                 calls.append(
                     log_tool_call(
                         session_id,
                         None,
                         execution.tool_name,
-                        execution.arguments,
-                        json.dumps(
-                            execution.output,
-                            ensure_ascii=False,
-                        )[:4000],
+                        safe_arguments,
+                        safe_output,
                         status=execution.status,
-                        error_message=execution.error_message,
+                        error_message=safe_error,
                         latency_ms=execution.latency_ms,
                     )
                 )
@@ -188,6 +487,7 @@ def execute_agent_chat(
                 status="success",
                 title="Agent run completed",
             )
+        _raise_if_cancelled(cancel_event)
         trace_snapshot = trace.snapshot()
         message_id = save_message(
             session_id,
@@ -222,6 +522,7 @@ def execute_agent_chat(
             "ragQuality": rag_quality,
             "retrievalRun": retrieval_run,
             "trace": trace_snapshot,
+            "runId": trace.run_id,
         }
     except Exception:
         if trace.steps[root_step]["status"] == "running":
@@ -247,27 +548,64 @@ def agent_chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
 @router.post("/api/agent/chat/stream", tags=EXTENSION_TAGS, summary="Stream an agent chat")
 def agent_chat_stream(payload: ChatRequest, request: Request) -> StreamingResponse:
     user_id = current_user_id(request)
+    run_id = f"run_{uuid.uuid4().hex[:12]}"
 
     def generate() -> Iterable[str]:
         queue: Queue[tuple[str, Any]] = Queue()
+        cancel_event = Event()
+
+        def enqueue(
+            event_name: str,
+            payload_value: dict[str, Any],
+        ) -> None:
+            safe = _safe_public_value(
+                {
+                    "type": event_name,
+                    **payload_value,
+                }
+            )
+            if isinstance(safe, dict):
+                queue.put((event_name, safe))
 
         def worker() -> None:
             try:
                 result = execute_agent_chat(
                     payload,
                     user_id,
-                    trace_emit=lambda event: queue.put(
-                        ("trace", event)
+                    run_id=run_id,
+                    trace_emit=lambda event: enqueue(
+                        "agent_step",
+                        event,
                     ),
+                    approval_emit=lambda event: enqueue(
+                        str(event["type"]),
+                        event,
+                    ),
+                    cancel_event=cancel_event,
                 )
                 queue.put(("result", result))
-            except Exception:
+            except Exception as exc:
+                if isinstance(exc, AgentRunCancelled):
+                    return
+                error_code = (
+                    exc.code
+                    if isinstance(
+                        exc,
+                        McpToolConfigurationError,
+                    )
+                    else "agent_run_failed"
+                )
                 queue.put(
                     (
                         "error",
                         {
-                            "code": "agent_run_failed",
-                            "message": "Agent run failed.",
+                            "code": error_code,
+                            "message": (
+                                "MCP tool configuration is invalid."
+                                if error_code
+                                == "mcp_tool_configuration_invalid"
+                                else "Agent run failed."
+                            ),
                         },
                     )
                 )
@@ -276,72 +614,75 @@ def agent_chat_stream(payload: ChatRequest, request: Request) -> StreamingRespon
             target=worker,
             daemon=True,
         ).start()
-        while True:
-            kind, value = queue.get()
-            if kind == "trace":
-                yield sse_event(
+        try:
+            while True:
+                event_name, value = queue.get()
+                if event_name in {
                     "agent_step",
-                    {
-                        "type": "agent_step",
-                        **value,
-                    },
-                )
-                continue
-            if kind == "error":
+                    "approval_required",
+                    "approval_resolved",
+                }:
+                    yield sse_event(event_name, value)
+                    continue
+                if event_name == "error":
+                    yield sse_event(
+                        "error",
+                        {
+                            "type": "error",
+                            **value,
+                        },
+                    )
+                    break
+                result = value
+                for call in result.get("toolCalls", []):
+                    yield sse_event(
+                        "tool",
+                        {"type": "tool", **call},
+                    )
+                for index in range(
+                    0,
+                    len(result["answer"]),
+                    12,
+                ):
+                    yield sse_event(
+                        "message",
+                        {
+                            "type": "answer",
+                            "content": result["answer"][
+                                index : index + 12
+                            ],
+                        },
+                    )
+                for ref in result["references"]:
+                    yield sse_event(
+                        "reference",
+                        {"type": "reference", **ref},
+                    )
+                if result.get("ragQuality", {}).get("enabled"):
+                    yield sse_event(
+                        "quality",
+                        {
+                            "type": "quality",
+                            "ragQuality": result["ragQuality"],
+                            "retrievalRun": result.get(
+                                "retrievalRun"
+                            ),
+                        },
+                    )
                 yield sse_event(
-                    "error",
+                    "done",
                     {
-                        "type": "error",
-                        **value,
+                        "type": "done",
+                        "runId": result["runId"],
+                        "sessionId": result["sessionId"],
+                        "messageId": result["messageId"],
+                        "trace": result["trace"],
                     },
                 )
                 break
-            result = value
-            for call in result.get("toolCalls", []):
-                yield sse_event(
-                    "tool",
-                    {"type": "tool", **call},
-                )
-            for index in range(
-                0,
-                len(result["answer"]),
-                12,
-            ):
-                yield sse_event(
-                    "message",
-                    {
-                        "type": "answer",
-                        "content": result["answer"][
-                            index : index + 12
-                        ],
-                    },
-                )
-            for ref in result["references"]:
-                yield sse_event(
-                    "reference",
-                    {"type": "reference", **ref},
-                )
-            if result.get("ragQuality", {}).get("enabled"):
-                yield sse_event(
-                    "quality",
-                    {
-                        "type": "quality",
-                        "ragQuality": result["ragQuality"],
-                        "retrievalRun": result.get(
-                            "retrievalRun"
-                        ),
-                    },
-                )
-            yield sse_event(
-                "done",
-                {
-                    "type": "done",
-                    "sessionId": result["sessionId"],
-                    "messageId": result["messageId"],
-                    "trace": result["trace"],
-                },
-            )
-            break
+        finally:
+            cancel_event.set()
+            approval_broker.cancel_run(run_id)
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
