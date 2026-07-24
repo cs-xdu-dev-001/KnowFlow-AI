@@ -67,7 +67,7 @@ class T(unittest.TestCase):
    async def handle_async_request(self,r): self.called=True
   d=D(); n=[0]
   def res(h,p): n[0]+=1; return ['93.184.216.34'] if n[0]==1 else ['10.0.0.1']
-  tr=_PinnedTransport(d,res); req=httpx.Request('GET','https://example.com'); asyncio.run(tr.handle_async_request(req)); self.assertRaises(ValueError,asyncio.run,tr.handle_async_request(req)); self.assertFalse(d.called)
+  tr=_PinnedTransport(d,res); req=httpx.Request('GET','https://example.com'); asyncio.run(tr.handle_async_request(req)); d.called=False; self.assertRaises(ValueError,lambda:asyncio.run(tr.handle_async_request(req))); self.assertFalse(d.called)
  def test_cursor_page_limit(self):
   f=Fake(); f.i=0
   async def lt(**kw): f.i+=1; return {'tools':[],'nextCursor':str(f.i)}
