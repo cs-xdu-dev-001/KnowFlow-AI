@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, text
 
 from .db_schema import MYSQL_SCHEMA, SQLITE_SCHEMA
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 
 class Database:
@@ -68,8 +68,7 @@ class Database:
             {
                 "version": CURRENT_SCHEMA_VERSION,
                 "description": (
-                    "Add encrypted per-user tool configuration "
-                    "and persisted agent trace snapshots."
+                    "Add per-user remote MCP servers, encrypted credentials, and OAuth sessions."
                 ),
             },
         )
