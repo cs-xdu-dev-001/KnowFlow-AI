@@ -27,7 +27,7 @@ class _PinnedTransport(httpx.AsyncBaseTransport):
   ip=resolve_remote_addresses(host,port,self.resolver,self.allow_private)[0]
   headers=request.headers
   if "host" not in headers: headers["host"]=host
-  req=request.copy()
+  req=httpx.Request(request.method,request.url,headers=request.headers,content=request.content,extensions=dict(request.extensions))
   req.url=req.url.copy_with(host=ip)
   req.extensions["sni_hostname"]=host
   return await self.delegate.handle_async_request(req)
