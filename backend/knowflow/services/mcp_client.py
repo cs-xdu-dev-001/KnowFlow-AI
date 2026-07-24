@@ -27,10 +27,12 @@ class _PinnedTransport(httpx.AsyncBaseTransport):
   ip=resolve_remote_addresses(host,port,self.resolver,self.allow_private)[0]
   headers=request.headers
   if "host" not in headers: headers["host"]=host
-  req=httpx.Request(request.method,request.url,headers=request.headers,content=request.content,extensions=dict(request.extensions))
+  req=httpx.Request(request.method,request.url,headers=request.headers,content=request.stream,extensions=dict(request.extensions))
   req.url=req.url.copy_with(host=ip)
   req.extensions["sni_hostname"]=host
   return await self.delegate.handle_async_request(req)
+ async def aclose(self):
+  await self.delegate.aclose()
 def _slug(x,fallback="server"):
  s=re.sub(r"[^A-Za-z0-9_-]+","-",str(x or "")).strip("-") or fallback
  return s
@@ -57,7 +59,8 @@ class McpRemoteClient:
  async def _connect(self):
   validate_remote_url(self.server_url,resolver=self.resolver,allow_private=self.allow_private)
   timeout=httpx.Timeout(self.request_timeout,connect=self.connect_timeout)
-  transport=_PinnedTransport(self.base_transport or httpx.AsyncHTTPTransport(),self.resolver,self.allow_private) if self.base_transport else None
+  delegate=self.base_transport or httpx.AsyncHTTPTransport(trust_env=False)
+  transport=_PinnedTransport(delegate,self.resolver,self.allow_private)
   http=httpx.AsyncClient(headers=self.headers,trust_env=False,follow_redirects=False,timeout=timeout,transport=transport)
   stack=AsyncExitStack(); await stack.__aenter__()
   try:
