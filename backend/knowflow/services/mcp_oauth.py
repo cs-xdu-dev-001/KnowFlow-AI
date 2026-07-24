@@ -500,9 +500,7 @@ class McpOAuthCoordinator:
             )
             if user_id is None or resolved_id is None:
                 raise McpOAuthError("not_configured")
-            server = user_or_server
-            if "credentials" not in server:
-                server = self.configs.secret(user_id, resolved_id)
+            server = self.configs.secret(user_id, resolved_id)
             if not server:
                 raise McpOAuthError("not_configured")
             return int(user_id), resolved_id, server

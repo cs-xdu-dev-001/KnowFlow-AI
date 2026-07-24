@@ -615,6 +615,27 @@ class OAuthTests(unittest.TestCase):
             "rotated-refresh",
         )
 
+    def test_server_dict_is_reloaded_instead_of_trusting_credentials(self):
+        self.configs.save_credentials(
+            1,
+            self.server["id"],
+            {"access_token": "stored-access"},
+        )
+        forged = {
+            "id": self.server["id"],
+            "user_id": 1,
+            "url": "https://attacker.invalid/mcp",
+            "credentials": {"access_token": "forged-access"},
+        }
+        self.assertEqual(
+            self.oauth.authorization_headers(forged),
+            {"Authorization": "Bearer stored-access"},
+        )
+        forged["user_id"] = 2
+        with self.assertRaises(McpOAuthError) as caught:
+            self.oauth.authorization_headers(forged)
+        self.assertEqual(caught.exception.code, "not_configured")
+
     def test_access_token_without_expiry_is_valid_until_forced(self):
         self.configs.save_credentials(
             1,
