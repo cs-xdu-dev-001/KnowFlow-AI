@@ -30,7 +30,8 @@ if /I "%~1"=="--check" (
   echo [KnowFlow] Backend directory:  "%BACKEND_DIR%"
   echo [KnowFlow] Frontend directory: "%FRONTEND_DIR%"
   echo [KnowFlow] Backend URL:        %VITE_BACKEND_URL%
-  echo [KnowFlow] OAuth callback URL: %KNOWFLOW_BASE_URL%/api/auth/oauth/github/callback
+  echo [KnowFlow] GitHub callback URL: %KNOWFLOW_BASE_URL%/api/auth/oauth/github/callback
+  echo [KnowFlow] MCP callback URL:    %KNOWFLOW_BASE_URL%/api/mcp/oauth/callback
   echo [KnowFlow] OAuth return origin:%KNOWFLOW_OAUTH_RETURN_ORIGINS%
   echo [KnowFlow] Frontend target:    %KNOWFLOW_FRONTEND_ORIGIN%
   echo [KnowFlow] Backend command:    set KNOWFLOW_BASE_URL=%KNOWFLOW_BASE_URL% ^&^& set KNOWFLOW_OAUTH_RETURN_ORIGINS=%KNOWFLOW_OAUTH_RETURN_ORIGINS% ^&^& py -3 -m uvicorn main:app --reload --host 127.0.0.1 --port %KNOWFLOW_BACKEND_PORT%

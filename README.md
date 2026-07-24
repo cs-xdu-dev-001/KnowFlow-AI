@@ -183,6 +183,12 @@ Copy `backend/.env.example` to `backend/.env` and update values as needed.
 | `KNOWFLOW_WEB_SEARCH_MAX_RESULTS` | Maximum normalized results returned to the model | `5` |
 | `KNOWFLOW_BASE_URL` | Public backend URL, used by OAuth callbacks | `http://127.0.0.1:8010` |
 | `KNOWFLOW_OAUTH_RETURN_ORIGINS` | Exact frontend origins allowed after OAuth login | `http://127.0.0.1:5173,http://localhost:5173` |
+| `KNOWFLOW_MCP_CONNECT_TIMEOUT` | MCP connection timeout in seconds | `10` |
+| `KNOWFLOW_MCP_REQUEST_TIMEOUT` | MCP request timeout in seconds | `30` |
+| `KNOWFLOW_MCP_APPROVAL_TIMEOUT` | Time allowed for one risky tool approval | `300` |
+| `KNOWFLOW_MCP_MAX_RESPONSE_BYTES` | Maximum MCP response size | `1048576` |
+| `KNOWFLOW_MCP_MAX_EXPOSED_TOOLS` | Maximum MCP tools exposed to one Agent run | `32` |
+| `KNOWFLOW_MCP_ALLOW_PRIVATE_NETWORKS` | Allow private-network MCP endpoints only for controlled development | `0` |
 | `KNOWFLOW_VECTOR_BACKEND` | `local` or `chroma` | `local` |
 | `KNOWFLOW_CHROMA_DIR` | Chroma persistence directory | `./data/chroma` |
 | `KNOWFLOW_GITHUB_CLIENT_ID` | GitHub OAuth client ID | empty |
@@ -203,6 +209,24 @@ Each signed-in user configures their own Tavily key in the 设置页. The backen
 Agent progress is emitted as sanitized SSE events. The chat message shows the current step, while the right-side Agent运行图 displays the full nested `model`, `tool`, `mcp`, `skill`, `agent`, `system`, and `approval` protocol. It exposes only bounded public input and result summaries, never hidden chain-of-thought, system prompts, credentials, or raw request logs.
 
 The completed Trace snapshot is stored with the assistant message. Reopening a session restores the same execution view, including completed and failed states.
+
+### Remote MCP servers
+
+The 工具与MCP page manages remote MCP connections for the current signed-in user. The built-in Notion preset uses the official `https://mcp.notion.com/mcp` endpoint with user OAuth; it does not ask for a Notion integration token. Select 连接Notion, finish authorization in Notion, return to the settings page, and use 刷新工具 when the remote tool catalog changes. 停用 immediately removes that server's tools from later Agent runs and clears its local authorization.
+
+Custom public HTTPS servers use the Streamable HTTP transport. The add-server dialog supports three authentication modes:
+
+- No authentication.
+- Static headers, encrypted with `KNOWFLOW_SECRET_KEY` and never returned in plaintext.
+- Standard OAuth with dynamic client registration or an administrator-provided client ID and optional secret.
+
+The model can autonomously choose enabled native or MCP tools. A tool explicitly marked read-only runs automatically. Write, delete, destructive, or unknown-risk operations pause the Agent and require an approval in both the chat message and the run drawer. “允许本次” authorizes only that invocation; enabling a tool is not permanent approval for writes.
+
+Remote URLs are revalidated against SSRF rules before discovery and connection. Private and loopback networks are rejected by default. `KNOWFLOW_MCP_ALLOW_PRIVATE_NETWORKS=1` is only for a controlled local development server; do not enable it in an internet-facing deployment.
+
+The first approval broker is in memory and therefore requires a single backend process. Do not run multiple Uvicorn workers until the broker is moved to shared storage or a message bus. If the process restarts, pending approvals expire safely and the remote write is not sent.
+
+For a real Notion smoke test, connect a non-production workspace and use a dedicated test page. First reject a create-page request and verify that nothing changed; then request it again, allow it once, and verify that exactly one page was created. Disconnect Notion afterward and confirm its tools no longer appear in a new Agent run.
 
 ## Auth Mode / Authentication
 
@@ -329,6 +353,7 @@ The second command should not show tracked local secrets, databases, dependency 
 - Keep `backend/.env` local.
 - Use HTTPS and set `KNOWFLOW_COOKIE_SECURE=1` when deploying behind a real domain.
 - Review OAuth callback URLs before publishing a deployment.
+- Keep private-network MCP access disabled outside an isolated development environment.
 
 ## License
 
