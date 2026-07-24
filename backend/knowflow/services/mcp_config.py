@@ -73,7 +73,20 @@ class McpConfigService:
         self.execute("UPDATE mcp_server SET status=:status,last_error_code=:error_code,updated_at=:updated_at WHERE id=:id AND user_id=:user_id", {"status": status, "error_code": error_code, "updated_at": self.now_str(), "id": server_id, "user_id": user_id}); return self.get_owned(user_id, server_id)
 
     def create_oauth_session(self, user_id, server_id, *, state_hash, pkce_verifier_cipher, return_to, expires_at):
-        now=self.now_str(); self.execute("INSERT INTO mcp_oauth_session(user_id,server_id,state_hash,pkce_verifier_cipher,return_to,expires_at,created_at) VALUES (:user_id,:server_id,:state_hash,:pkce_verifier_cipher,:return_to,:expires_at,:created_at)", locals()); return self.fetch_one("SELECT * FROM mcp_oauth_session WHERE user_id=:user_id AND server_id=:server_id AND state_hash=:state_hash ORDER BY id DESC", {"user_id":user_id,"server_id":server_id,"state_hash":state_hash})
+        now = self.now_str()
+        self.execute(
+            "INSERT INTO mcp_oauth_session(user_id,server_id,state_hash,pkce_verifier_cipher,return_to,expires_at,created_at) VALUES (:user_id,:server_id,:state_hash,:pkce_verifier_cipher,:return_to,:expires_at,:created_at)",
+            {
+                "user_id": user_id,
+                "server_id": server_id,
+                "state_hash": state_hash,
+                "pkce_verifier_cipher": pkce_verifier_cipher,
+                "return_to": return_to,
+                "expires_at": expires_at,
+                "created_at": now,
+            },
+        )
+        return self.fetch_one("SELECT * FROM mcp_oauth_session WHERE user_id=:user_id AND server_id=:server_id AND state_hash=:state_hash ORDER BY id DESC", {"user_id":user_id,"server_id":server_id,"state_hash":state_hash})
 
     def consume_oauth_session(self, user_id, session_id, state_hash):
         row=self.fetch_one("SELECT * FROM mcp_oauth_session WHERE id=:id AND user_id=:user_id AND state_hash=:state_hash", {"id":session_id,"user_id":user_id,"state_hash":state_hash})
