@@ -56,6 +56,23 @@ class T(unittest.TestCase):
    try: p.call_tool('s','x')
    except Exception as e: out.append(e)
   t=threading.Thread(target=run); t.start(); t.join(); self.assertTrue(out and isinstance(out[0],McpClientError)); p.close()
+ def test_pinned_transport(self):
+  class D:
+   async def handle_async_request(self,r): self.r=r; return r
+  d=D(); tr=_PinnedTransport(d,lambda h,p:['93.184.216.34']); req=httpx.Request('GET','https://example.com/a'); asyncio.run(tr.handle_async_request(req)); self.assertEqual(d.r.url.host,'93.184.216.34'); self.assertEqual(d.r.headers['host'],'example.com'); self.assertEqual(d.r.extensions['sni_hostname'],'example.com')
+ def test_pinned_transport_recheck_blocks(self):
+  class D:
+   called=False
+   async def handle_async_request(self,r): self.called=True
+  d=D(); n=[0]
+  def res(h,p): n[0]+=1; return ['93.184.216.34'] if n[0]==1 else ['10.0.0.1']
+  tr=_PinnedTransport(d,res); req=httpx.Request('GET','https://example.com'); asyncio.run(tr.handle_async_request(req)); self.assertRaises(ValueError,asyncio.run,tr.handle_async_request(req)); self.assertFalse(d.called)
+ def test_cursor_page_limit(self):
+  f=Fake(); f.list_tools=lambda **kw: asyncio.sleep(0,result={'tools':[],'nextCursor':'x'}); c=McpRemoteClient('s','https://x',session_factory=lambda u,h:f,resolver=lambda *a:[(0,0,0,'x',('8.8.8.8',443))]); self.assertRaises(McpClientError,lambda:asyncio.run(c.discover_tools()))
+ def test_invalidate_reconnect(self):
+  fs=[Fake(),Fake()]; i=[0]
+  def load(s): x=fs[i[0]]; i[0]+=1; return McpRemoteClient('s','https://x',session_factory=lambda u,h,f=x:f,resolver=lambda *a:[(0,0,0,'x',('8.8.8.8',443))])
+  p=McpRunSessionPool(server_loader=load); p.call_tool('s','echo'); p.invalidate('s'); p.call_tool('s','echo'); p.close(); self.assertEqual(i[0],2)
  def test_name_and_normalize(self):
   self.assertLessEqual(len(model_tool_name('a'*100,'b'*100)),64)
   x=normalize_result({'content':[{'type':'image','data':'x'}]}); self.assertNotIn('data',str(x)); self.assertIsNone(x['structuredContent'])
