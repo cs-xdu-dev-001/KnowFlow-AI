@@ -121,6 +121,14 @@ export const mcpApi = {
     }),
 };
 
+export const approvalApi = {
+  resolve: (approvalId, decision) =>
+    apiRequest(`/api/agent/approvals/${approvalId}`, {
+      method: "POST",
+      body: { decision },
+    }),
+};
+
 export const runtimeApi = {
   get: () => apiRequest("/api/runtime"),
 };

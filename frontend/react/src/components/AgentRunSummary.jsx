@@ -19,13 +19,17 @@ function shortRunId(runId) {
 
 export function AgentRunSummary({ trace = [] }) {
   const safeTrace = Array.isArray(trace) ? trace : [];
-  const running = safeTrace.some((step) => step.status === "running");
-  const failed = !running && safeTrace.some((step) => step.status === "failed");
-  const cancelled = !running && !failed && safeTrace.some(
-    (step) => step.status === "cancelled",
+  const rootStep = (
+    safeTrace.find((step) => step.name === "agent_run")
+    || safeTrace[0]
   );
-  const waiting = !running && !failed && !cancelled && safeTrace.some(
-    (step) => step.status === "waiting",
+  const running = rootStep?.status === "running";
+  const failed = rootStep?.status === "failed";
+  const cancelled = rootStep?.status === "cancelled";
+  const approvalWaiting = safeTrace.some(
+    (step) =>
+      step.status === "waiting" &&
+      step.kind === "approval",
   );
   const [now, setNow] = useState(() => Date.now());
 
@@ -37,45 +41,46 @@ export function AgentRunSummary({ trace = [] }) {
   }, [running]);
 
   const metrics = useMemo(() => {
-    const root = (
-      safeTrace.find((step) => step.name === "agent_run")
-      || safeTrace[0]
-    );
-    const startedAt = Date.parse(root?.startedAt || "");
-    const elapsedMs = root?.durationMs != null
-      ? root.durationMs
+    const startedAt = Date.parse(rootStep?.startedAt || "");
+    const elapsedMs = rootStep?.durationMs != null
+      ? rootStep.durationMs
       : Number.isFinite(startedAt)
         ? now - startedAt
         : 0;
     return {
       completed: safeTrace.filter((step) => terminalStatuses.has(step.status)).length,
       elapsed: formatDuration(elapsedMs),
-      runId: shortRunId(root?.runId),
-      toolCalls: safeTrace.filter((step) => step.kind === "tool").length,
+      runId: shortRunId(rootStep?.runId),
+      toolCalls: safeTrace.filter(
+        (step) =>
+          step.kind === "tool" || step.kind === "mcp",
+      ).length,
       total: safeTrace.length,
     };
-  }, [now, safeTrace]);
+  }, [now, rootStep, safeTrace]);
 
   const status = !safeTrace.length
     ? "waiting"
-    : running
+    : approvalWaiting
+      ? "waiting"
+      : running
       ? "running"
       : failed
         ? "failed"
         : cancelled
           ? "cancelled"
-          : waiting
-            ? "waiting"
-            : "success";
+          : "success";
   const statusLabel = {
     cancelled: "已取消",
     failed: "失败",
     running: "执行中",
     success: "已完成",
-    waiting: "等待运行",
+    waiting: approvalWaiting ? "等待确认" : "等待运行",
   }[status];
   const freshness = running
-    ? "实时"
+    ? approvalWaiting
+      ? "等待确认"
+      : "实时"
     : status === "waiting"
       ? "等待"
       : "已保存";

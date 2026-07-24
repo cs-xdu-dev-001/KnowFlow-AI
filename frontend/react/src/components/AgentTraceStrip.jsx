@@ -5,6 +5,12 @@ function currentStep(trace) {
   const safeTrace = Array.isArray(trace) ? trace : [];
   return (
     [...safeTrace].reverse().find(
+      (step) =>
+        step.status === "waiting" &&
+        step.kind === "approval",
+    )
+    ||
+    [...safeTrace].reverse().find(
       (step) => step.status === "running",
     )
     || [...safeTrace].reverse().find(Boolean)
@@ -15,10 +21,12 @@ function currentStep(trace) {
 export function AgentTraceStrip({
   messageId,
   trace = [],
+  approvals = [],
 }) {
   const step = currentStep(trace);
   if (!step) return null;
   const running = step.status === "running";
+  const waiting = step.status === "waiting";
   const completed = trace.filter(
     (item) => item.status === "success",
   ).length;
@@ -34,7 +42,7 @@ export function AgentTraceStrip({
       new CustomEvent(
         "knowflow:react-agent-trace-open",
         {
-          detail: { messageId, trace },
+          detail: { messageId, trace, approvals },
         },
       ),
     );
@@ -60,7 +68,9 @@ export function AgentTraceStrip({
       >
         <strong>{traceStepTitle(step)}</strong>
         <small>
-          {running
+          {waiting
+            ? "Agent已暂停，确认后继续"
+            : running
             ? `${completed}/${trace.length || 1}个步骤完成`
             : `${terminal}个步骤已结束`}
         </small>
@@ -68,7 +78,9 @@ export function AgentTraceStrip({
       <span className={"agent-trace-strip-time"}>
         {step.durationMs != null
           ? `${step.durationMs}ms`
-          : "运行中"}
+          : waiting
+            ? "等待确认"
+            : "运行中"}
       </span>
       <svg
         viewBox={"0 0 20 20"}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { AgentApprovalPrompt } from "./AgentApprovalPrompt.jsx";
 import { AgentRunSummary } from "./AgentRunSummary.jsx";
 import { AgentTraceView } from "./AgentTraceView.jsx";
 
@@ -37,6 +38,7 @@ export function ChatEvidenceDrawer() {
   const [ragQuality, setRagQuality] = useState(null);
   const [retrievalRun, setRetrievalRun] = useState(null);
   const [trace, setTrace] = useState([]);
+  const [approvals, setApprovals] = useState([]);
 
   useEffect(() => {
     const handleReferencesUpdated = (event) => setReferences(Array.isArray(event.detail?.references) ? event.detail.references : []);
@@ -52,7 +54,12 @@ export function ChatEvidenceDrawer() {
       setTrace(nextTrace);
       if (
         nextTrace.some(
-          (step) => step.status === "running",
+          (step) =>
+            step.status === "running" ||
+            (
+              step.status === "waiting" &&
+              step.kind === "approval"
+            ),
         )
       ) {
         setActiveTab("trace");
@@ -64,19 +71,40 @@ export function ChatEvidenceDrawer() {
           ? event.detail.trace
           : [],
       );
+      setApprovals(
+        Array.isArray(event.detail?.approvals)
+          ? event.detail.approvals
+          : [],
+      );
       setActiveTab("trace");
+    };
+    const handleAgentApprovalsUpdated = (event) => {
+      setApprovals(
+        Array.isArray(event.detail?.approvals)
+          ? event.detail.approvals
+          : [],
+      );
+      if (
+        event.detail?.approvals?.some(
+          (approval) => approval.status === "waiting",
+        )
+      ) {
+        setActiveTab("trace");
+      }
     };
     window.addEventListener("knowflow:react-references-updated", handleReferencesUpdated);
     window.addEventListener("knowflow:react-tool-timeline-updated", handleToolTimelineUpdated);
     window.addEventListener("knowflow:react-rag-quality-updated", handleRagQualityUpdated);
     window.addEventListener("knowflow:react-agent-trace-updated", handleAgentTraceUpdated);
     window.addEventListener("knowflow:react-agent-trace-open", handleAgentTraceOpen);
+    window.addEventListener("knowflow:react-agent-approvals-updated", handleAgentApprovalsUpdated);
     return () => {
       window.removeEventListener("knowflow:react-references-updated", handleReferencesUpdated);
       window.removeEventListener("knowflow:react-tool-timeline-updated", handleToolTimelineUpdated);
       window.removeEventListener("knowflow:react-rag-quality-updated", handleRagQualityUpdated);
       window.removeEventListener("knowflow:react-agent-trace-updated", handleAgentTraceUpdated);
       window.removeEventListener("knowflow:react-agent-trace-open", handleAgentTraceOpen);
+      window.removeEventListener("knowflow:react-agent-approvals-updated", handleAgentApprovalsUpdated);
     };
   }, []);
 
@@ -124,6 +152,17 @@ export function ChatEvidenceDrawer() {
           id={"agent-trace-panel"}
           role={"tabpanel"}
         >
+          {approvals.length ? (
+            <div className={"agent-approval-drawer-list"}>
+              {approvals.map((approval) => (
+                <AgentApprovalPrompt
+                  approval={approval}
+                  compact
+                  key={approval.approvalId}
+                />
+              ))}
+            </div>
+          ) : null}
           <AgentTraceView trace={trace} />
         </div>
       ) : (

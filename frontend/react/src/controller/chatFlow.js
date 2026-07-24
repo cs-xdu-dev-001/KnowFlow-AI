@@ -27,15 +27,53 @@ function mergeTraceStep(trace, step) {
 }
 
 function markTraceInterrupted(trace) {
-  return (Array.isArray(trace) ? trace : []).map((step) =>
-    step.status === "running"
+  return (Array.isArray(trace) ? trace : []).map((step) => {
+    if (step.status === "waiting" && step.kind === "approval") {
+      return {
+        ...step,
+        status: "cancelled",
+        title: "确认已取消",
+        errorCode: "approval_cancelled",
+      };
+    }
+    return step.status === "running"
       ? {
           ...step,
           status: "failed",
           title: "连接中断",
           errorCode: "stream_interrupted",
         }
-      : step,
+      : step;
+  });
+}
+
+function mergeApproval(approvals, event) {
+  const next = Array.isArray(approvals) ? [...approvals] : [];
+  const index = next.findIndex(
+    (item) => item.approvalId === event.approvalId,
+  );
+  const value = {
+    ...(index >= 0 ? next[index] : {}),
+    ...event,
+    status:
+      event.type === "approval_required"
+        ? "waiting"
+        : event.status || "cancelled",
+  };
+  if (index >= 0) next[index] = value;
+  else next.push(value);
+  return next;
+}
+
+function markApprovalsCancelled(approvals) {
+  return (Array.isArray(approvals) ? approvals : []).map((approval) =>
+    approval.status === "waiting" && !approval.decision
+      ? {
+          ...approval,
+          status: "cancelled",
+          decision: "cancelled",
+        }
+      : approval,
   );
 }
 
@@ -50,6 +88,7 @@ export function createChatFlow({
   setMessageThinking,
   setSending,
   renderActiveSession,
+  renderAgentApprovals,
   renderAgentTrace,
   renderAttachmentTray,
   renderReferences,
@@ -87,6 +126,7 @@ export function createChatFlow({
     renderReferences([]);
     renderToolTimeline([]);
     renderAgentTrace(null, []);
+    renderAgentApprovals(null, []);
     requestComposerReset({ focus: true });
     state.chatAttachments = [];
     renderAttachmentTray();
@@ -180,12 +220,74 @@ export function createChatFlow({
 
     let answerBuffer = "";
     let trace = [];
+    let approvals = [];
     let receivedDone = false;
     const controller = new AbortController();
     state.activeChatController = controller;
     setSending(true);
     renderReferences([]);
     renderToolTimeline([]);
+    renderAgentApprovals(answer, approvals);
+
+    const cancelPendingApprovals = () => {
+      const next = markApprovalsCancelled(approvals);
+      const changed = next.some(
+        (approval, index) => approval !== approvals[index],
+      );
+      approvals = next;
+      if (changed) renderAgentApprovals(answer, approvals);
+    };
+    const handleLocalApprovalState = (event) => {
+      const detail = event.detail || {};
+      if (
+        !detail.approvalId ||
+        !["resolved", "expired"].includes(detail.state)
+      ) return;
+      const current = approvals.find(
+        (approval) =>
+          approval.approvalId === detail.approvalId,
+      );
+      if (!current) return;
+      const decision =
+        detail.state === "expired"
+          ? "expired"
+          : detail.decision;
+      const status =
+        decision === "allow_once"
+          ? "success"
+          : "failed";
+      approvals = mergeApproval(approvals, {
+        type: "approval_submitted",
+        approvalId: detail.approvalId,
+        decision,
+        status,
+      });
+      renderAgentApprovals(answer, approvals);
+      if (current.stepId) {
+        trace = mergeTraceStep(trace, {
+          stepId: current.stepId,
+          status,
+          title:
+            decision === "allow_once"
+              ? "Approval granted"
+              : decision === "deny"
+                ? "Approval denied"
+                : "Approval expired",
+          outputSummary: { decision },
+          errorCode:
+            decision === "allow_once"
+              ? null
+              : decision === "deny"
+                ? "permission_denied"
+                : "approval_expired",
+        });
+        renderAgentTrace(answer, trace);
+      }
+    };
+    window.addEventListener(
+      "knowflow:react-approval-local-state",
+      handleLocalApprovalState,
+    );
 
     try {
       const response = await fetch("/api/chat/stream", {
@@ -223,6 +325,14 @@ export function createChatFlow({
             trace = mergeTraceStep(trace, eventPayload);
             renderAgentTrace(answer, trace);
           }
+          if (eventPayload.type === "approval_required") {
+            approvals = mergeApproval(approvals, eventPayload);
+            renderAgentApprovals(answer, approvals);
+          }
+          if (eventPayload.type === "approval_resolved") {
+            approvals = mergeApproval(approvals, eventPayload);
+            renderAgentApprovals(answer, approvals);
+          }
           if (eventPayload.type === "answer") {
             answerBuffer += eventPayload.content || "";
             setMessageContent(answer, "assistant", answerBuffer);
@@ -240,6 +350,7 @@ export function createChatFlow({
             openRetrievalDrawerFromRun(eventPayload.retrievalRun);
           }
           if (eventPayload.type === "error") {
+            cancelPendingApprovals();
             trace = markTraceInterrupted(trace);
             renderAgentTrace(answer, trace);
             throw new Error(
@@ -248,6 +359,7 @@ export function createChatFlow({
           }
           if (eventPayload.type === "done") {
             receivedDone = true;
+            cancelPendingApprovals();
             if (Array.isArray(eventPayload.trace)) {
               trace = eventPayload.trace;
               renderAgentTrace(answer, trace);
@@ -257,9 +369,12 @@ export function createChatFlow({
           }
         }
       }
-      if (!receivedDone && trace.length) {
-        trace = markTraceInterrupted(trace);
-        renderAgentTrace(answer, trace);
+      if (!receivedDone) {
+        cancelPendingApprovals();
+        if (trace.length) {
+          trace = markTraceInterrupted(trace);
+          renderAgentTrace(answer, trace);
+        }
       }
       if (answer.thinking) {
         setMessageContent(answer, "assistant", answerBuffer || "模型没有返回内容。");
@@ -271,6 +386,7 @@ export function createChatFlow({
       }
       requestReactSessionsRefresh();
     } catch (error) {
+      cancelPendingApprovals();
       if (trace.length) {
         trace = markTraceInterrupted(trace);
         renderAgentTrace(answer, trace);
@@ -282,6 +398,10 @@ export function createChatFlow({
         toast("聊天请求失败", 4200, "error");
       }
     } finally {
+      window.removeEventListener(
+        "knowflow:react-approval-local-state",
+        handleLocalApprovalState,
+      );
       if (state.activeChatController === controller) state.activeChatController = null;
       answer.streaming = false;
       answer.thinking = false;

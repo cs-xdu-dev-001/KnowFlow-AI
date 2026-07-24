@@ -35,6 +35,14 @@ function displayName(step) {
 export function traceStepTitle(step) {
   if (!step) return "";
   if (step.title === "连接中断") return step.title;
+  if (step.kind === "approval") {
+    if (step.status === "waiting") return "等待工具确认";
+    if (step.status === "success") return "已允许工具执行";
+    if (step.status === "cancelled") return "工具确认已取消";
+    return step.outputSummary?.decision === "timeout"
+      ? "工具确认已超时"
+      : "已拒绝工具执行";
+  }
   if (step.name === "agent_run") {
     if (step.status === "running") return "Agent正在处理";
     if (step.status === "success") return "Agent处理完成";
@@ -74,8 +82,22 @@ function stepDepth(step, byId) {
 }
 
 function summaryText(value, fallback) {
-  const text = String(value || "").trim();
-  return text || fallback;
+  if (value == null || value === "") return fallback;
+  if (typeof value === "string") return value.trim() || fallback;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function mcpServerName(step) {
+  const serverName = step?.details?.serverName || step?.serverName;
+  if (serverName) return String(serverName);
+  const parts = String(step?.name || "").split("__");
+  return parts.length >= 3 && parts[0] === "mcp"
+    ? parts[1]
+    : "MCP";
 }
 
 export function AgentTraceView({ trace = [] }) {
@@ -92,11 +114,23 @@ export function AgentTraceView({ trace = [] }) {
   }, [trace]);
   const selected = (
     rows.find((step) => step.stepId === selectedId)
+    || [...rows].reverse().find(
+      (step) =>
+        step.status === "waiting" &&
+        step.kind === "approval",
+    )
     || [...rows].reverse().find((step) => step.status === "running")
     || rows[rows.length - 1]
   );
-  const currentStepId = [...rows].reverse().find(
-    (step) => step.status === "running",
+  const currentStepId = (
+    [...rows].reverse().find(
+      (step) =>
+        step.status === "waiting" &&
+        step.kind === "approval",
+    )
+    || [...rows].reverse().find(
+      (step) => step.status === "running",
+    )
   )?.stepId;
 
   if (!rows.length) {
@@ -166,6 +200,28 @@ export function AgentTraceView({ trace = [] }) {
           className={"agent-trace-detail"}
           aria-label={"步骤详情"}
         >
+          {selected.kind === "mcp" || selected.kind === "approval" ? (
+            <div className={"agent-trace-context"}>
+              <span>{"服务器"}</span>
+              <code>{mcpServerName(selected)}</code>
+              <span>{"工具"}</span>
+              <code>
+                {selected.details?.toolName || displayName(selected)}
+              </code>
+              {selected.details?.risk ? (
+                <>
+                  <span>{"风险"}</span>
+                  <code>{selected.details.risk}</code>
+                </>
+              ) : null}
+              {selected.outputSummary?.decision ? (
+                <>
+                  <span>{"决定"}</span>
+                  <code>{selected.outputSummary.decision}</code>
+                </>
+              ) : null}
+            </div>
+          ) : null}
           <div>
             <span>{"公开输入"}</span>
             <code>

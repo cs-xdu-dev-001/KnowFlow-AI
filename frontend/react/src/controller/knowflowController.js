@@ -7,6 +7,7 @@ import { state, messageRetryRequests } from "./controllerState.js";
 import {
   appendReactMessage,
   dispatchReactMessagesReset,
+  updateReactMessageApprovals,
   updateReactMessageContent,
   updateReactMessageThinking,
   updateReactMessageTrace,
@@ -62,6 +63,17 @@ function renderAgentTrace(message, trace) {
     {
       messageId: message?.messageId || "",
       trace: Array.isArray(trace) ? trace : [],
+    },
+  );
+}
+
+function renderAgentApprovals(message, approvals) {
+  updateReactMessageApprovals(message, approvals);
+  dispatchReactEvent(
+    "knowflow:react-agent-approvals-updated",
+    {
+      messageId: message?.messageId || "",
+      approvals: Array.isArray(approvals) ? approvals : [],
     },
   );
 }
@@ -133,6 +145,7 @@ const chatFlow = createChatFlow({
   setMessageThinking,
   setSending,
   renderActiveSession,
+  renderAgentApprovals,
   renderAgentTrace,
   renderAttachmentTray,
   renderReferences,

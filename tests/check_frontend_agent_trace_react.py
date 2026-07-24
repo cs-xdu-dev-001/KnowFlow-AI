@@ -87,6 +87,16 @@ def main() -> None:
     )
     require(
         "frontend/react/src/components/AgentRunSummary.jsx",
+        'step.kind === "tool" || step.kind === "mcp"',
+        "native and MCP tool count",
+    )
+    require(
+        "frontend/react/src/components/AgentRunSummary.jsx",
+        '"等待确认"',
+        "approval waiting status",
+    )
+    require(
+        "frontend/react/src/components/AgentRunSummary.jsx",
         '"已取消"',
         "cancelled run status",
     )
