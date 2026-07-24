@@ -77,9 +77,16 @@ class ModelGateway:
         data = response.json()
         return list(data["data"][0]["embedding"])
 
-    def chat(self, messages: list[dict[str, str]], config: dict[str, Any] | None = None) -> str:
+    def complete(
+        self,
+        messages: list[dict[str, Any]],
+        config: dict[str, Any] | None = None,
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | None = None,
+    ) -> dict[str, Any]:
         if not config or not self.cipher.decrypt(config.get("api_key_cipher")):
-            return self.local_answer(messages)
+            return {"role": "assistant", "content": self.local_answer(messages)}
         url = self.endpoint(config["base_url"], "/chat/completions")
         payload: dict[str, Any] = {
             "model": config["model_name"],
@@ -93,12 +100,27 @@ class ModelGateway:
                 payload["max_completion_tokens"] = int(config["max_tokens"])
             else:
                 payload["max_tokens"] = int(config["max_tokens"])
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = tool_choice or "auto"
         response = self.post_model_json(url, self.headers(config), payload)
         response.raise_for_status()
-        data = response.json()
-        return data["choices"][0]["message"]["content"]
+        message = response.json()["choices"][0]["message"]
+        if not isinstance(message, dict):
+            raise ValueError(
+                "Model response did not contain a valid assistant message."
+            )
+        return message
 
-    def local_answer(self, messages: list[dict[str, str]]) -> str:
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        config: dict[str, Any] | None = None,
+    ) -> str:
+        message = self.complete(messages, config)
+        return str(message.get("content") or "")
+
+    def local_answer(self, messages: list[dict[str, Any]]) -> str:
         system_content = next((item["content"] for item in messages if item["role"] == "system"), "")
         user_content = next((item["content"] for item in reversed(messages) if item["role"] == "user"), "")
         identity_keywords = ["model", "provider", "identity", "who are you", "\u4ec0\u4e48\u6a21\u578b", "\u4f9b\u5e94\u5546", "\u4f60\u662f\u8c01", "\u8eab\u4efd"]
