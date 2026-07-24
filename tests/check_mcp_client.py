@@ -76,6 +76,28 @@ class T(unittest.TestCase):
   fs=[Fake(),Fake()]; i=[0]
   def load(s): x=fs[i[0]]; i[0]+=1; return McpRemoteClient('s','https://x',session_factory=lambda u,h,f=x:f,resolver=lambda *a:[(0,0,0,'x',('8.8.8.8',443))])
   p=McpRunSessionPool(server_loader=load); p.call_tool('s','echo'); p.invalidate('s'); p.call_tool('s','echo'); p.close(); self.assertEqual(i[0],2)
+ def test_pinned_unread_stream(self):
+  class S(httpx.AsyncByteStream):
+   async def __aiter__(self): yield b'raw-bytes'
+  class D:
+   async def handle_async_request(self,r): self.data=b''.join([x async for x in r.stream]); return httpx.Response(200,request=r)
+  d=D(); tr=_PinnedTransport(d,lambda h,p:['93.184.216.34']); asyncio.run(tr.handle_async_request(httpx.Request('POST','https://example.com',content=S()))); self.assertEqual(d.data,b'raw-bytes')
+ def test_default_connect_uses_pinned(self):
+  import knowflow.services.mcp_client as m
+  seen={}
+  class A:
+   def __init__(self,**kw): seen.update(kw)
+   async def aclose(self): pass
+  old=m.httpx.AsyncClient; m.httpx.AsyncClient=A
+  class S(Fake): pass
+  try:
+   c=McpRemoteClient('s','https://x',session_factory=lambda u,h:S(),resolver=lambda *a:[(0,0,0,'x',('8.8.8.8',443))]); co=asyncio.run(c._connect()); self.assertIsInstance(seen['transport'],_PinnedTransport); self.assertIsInstance(seen['transport'].delegate,httpx.AsyncHTTPTransport); asyncio.run(co.stack.aclose()); asyncio.run(co.http.aclose())
+  finally: m.httpx.AsyncClient=old
+ def test_pinned_aclose_once(self):
+  class D:
+   def __init__(self): self.n=0
+   async def aclose(self): self.n+=1
+  d=D(); asyncio.run(_PinnedTransport(d,lambda h,p:['93.184.216.34']).aclose()); self.assertEqual(d.n,1)
  def test_name_and_normalize(self):
   self.assertLessEqual(len(model_tool_name('a'*100,'b'*100)),64)
   x=normalize_result({'content':[{'type':'image','data':'x'}]}); self.assertNotIn('data',str(x)); self.assertIsNone(x['structuredContent'])
